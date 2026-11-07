@@ -1,0 +1,190 @@
+import { z } from "zod";
+import { formatRate, isCurrencyCode, parseRate } from "@/lib/money";
+import { categoryLabel, CATEGORY_IDS } from "./categories";
+import { formatDate } from "./days";
+import { SPLIT_MODES } from "./expense-form";
+import { formatMoney } from "./format";
+import type { StoredExpense, StoredSettlement } from "./types";
+
+/** The actions written to `audit_log.action`. */
+export const AUDIT_ACTIONS = [
+  "expense.create",
+  "expense.update",
+  "expense.delete",
+  "expense.restore",
+  "settlement.create",
+  "settlement.delete",
+  "settlement.restore",
+] as const;
+export type AuditAction = (typeof AUDIT_ACTIONS)[number];
+
+const personAmount = z.object({
+  userId: z.string(),
+  amountMinor: z.number().int(),
+  weight: z.number().int().nullable().optional(),
+});
+
+/** The JSON stored in `audit_log.before` and `.after` for an expense. */
+export const expenseSnapshotSchema = z.object({
+  description: z.string(),
+  category: z.enum(CATEGORY_IDS),
+  spentOn: z.string(),
+  amountMinor: z.number().int(),
+  currency: z.string(),
+  billedAmountMinor: z.number().int().nullable(),
+  billedCurrency: z.string().nullable(),
+  rate: z.string().nullable(),
+  rateCurrency: z.string().nullable(),
+  splitMethod: z.enum(SPLIT_MODES),
+  payers: z.array(personAmount),
+  shares: z.array(personAmount),
+});
+export type ExpenseSnapshot = z.infer<typeof expenseSnapshotSchema>;
+
+export const settlementSnapshotSchema = z.object({
+  fromUserId: z.string(),
+  toUserId: z.string(),
+  amountMinor: z.number().int(),
+  currency: z.string(),
+  billedAmountMinor: z.number().int().nullable(),
+  billedCurrency: z.string().nullable(),
+  rate: z.string().nullable(),
+  rateCurrency: z.string().nullable(),
+  settledOn: z.string(),
+  note: z.string().nullable(),
+});
+export type SettlementSnapshot = z.infer<typeof settlementSnapshotSchema>;
+
+export function snapshotExpense(expense: StoredExpense): ExpenseSnapshot {
+  return {
+    description: expense.description,
+    category: expense.category,
+    spentOn: expense.spentOn,
+    amountMinor: expense.amountMinor,
+    currency: expense.currency,
+    billedAmountMinor: expense.billedAmountMinor,
+    billedCurrency: expense.billedCurrency,
+    rate: expense.rate === null ? null : formatRate(parseRate(expense.rate)),
+    rateCurrency: expense.rateCurrency,
+    splitMethod: expense.splitMethod,
+    payers: expense.payers.map((p) => ({ userId: p.userId, amountMinor: p.amountMinor })),
+    shares: expense.shares.map((s) => ({
+      userId: s.userId,
+      amountMinor: s.amountMinor,
+      weight: s.weight,
+    })),
+  };
+}
+
+export function snapshotSettlement(settlement: StoredSettlement): SettlementSnapshot {
+  return {
+    fromUserId: settlement.fromUserId,
+    toUserId: settlement.toUserId,
+    amountMinor: settlement.amountMinor,
+    currency: settlement.currency,
+    billedAmountMinor: settlement.billedAmountMinor,
+    billedCurrency: settlement.billedCurrency,
+    rate: settlement.rate === null ? null : formatRate(parseRate(settlement.rate)),
+    rateCurrency: settlement.rateCurrency,
+    settledOn: settlement.settledOn,
+    note: settlement.note,
+  };
+}
+
+/** One line of "who changed what": a field with its old and new value as people read them. */
+export interface Change {
+  readonly label: string;
+  readonly from: string | null;
+  readonly to: string | null;
+}
+
+function money(minor: number, currency: string): string {
+  return isCurrencyCode(currency) ? formatMoney(minor, currency) : `${String(minor)} ${currency}`;
+}
+
+function people(
+  rows: readonly { userId: string; amountMinor: number }[],
+  currency: string,
+  nameOf: (userId: string) => string,
+): string {
+  return rows.map((row) => `${nameOf(row.userId)} ${money(row.amountMinor, currency)}`).join(", ");
+}
+
+function byUserId<T extends { userId: string }>(rows: readonly T[]): T[] {
+  return [...rows].sort((a, b) => (a.userId < b.userId ? -1 : a.userId > b.userId ? 1 : 0));
+}
+
+const SPLIT_LABELS: Record<(typeof SPLIT_MODES)[number], string> = {
+  equal: "Equally",
+  exact: "Exact amounts",
+  percent: "By percentage",
+  shares: "By shares",
+};
+
+/** The facts of an expense as labelled display text; the basis for comparing two versions. */
+function expenseFacts(
+  snapshot: ExpenseSnapshot,
+  nameOf: (userId: string) => string,
+): [label: string, value: string | null][] {
+  return [
+    ["Description", snapshot.description],
+    ["Category", categoryLabel(snapshot.category)],
+    ["Date", formatDate(snapshot.spentOn)],
+    ["Amount", money(snapshot.amountMinor, snapshot.currency)],
+    [
+      "Billed by the bank",
+      snapshot.billedAmountMinor !== null && snapshot.billedCurrency !== null
+        ? money(snapshot.billedAmountMinor, snapshot.billedCurrency)
+        : null,
+    ],
+    [
+      "Exchange rate",
+      snapshot.rate !== null && snapshot.rateCurrency !== null
+        ? `S$${snapshot.rate} per ${snapshot.rateCurrency}`
+        : null,
+    ],
+    ["Paid by", people(byUserId(snapshot.payers), snapshot.currency, nameOf)],
+    ["Split", SPLIT_LABELS[snapshot.splitMethod]],
+    ["Shared between", people(byUserId(snapshot.shares), snapshot.currency, nameOf)],
+  ];
+}
+
+/** The fields that differ between two versions of an expense (all fields of one when the other is absent). */
+export function describeExpenseChanges(
+  before: ExpenseSnapshot | null,
+  after: ExpenseSnapshot | null,
+  nameOf: (userId: string) => string,
+): Change[] {
+  const reference = after ?? before;
+  if (!reference) return [];
+  const left = new Map(before ? expenseFacts(before, nameOf) : []);
+  const right = new Map(after ? expenseFacts(after, nameOf) : []);
+  const changes: Change[] = [];
+  for (const [label] of expenseFacts(reference, nameOf)) {
+    const from = left.get(label) ?? null;
+    const to = right.get(label) ?? null;
+    if (from !== to) changes.push({ label, from, to });
+  }
+  return changes;
+}
+
+export function auditActionLabel(action: string): string {
+  switch (action) {
+    case "expense.create":
+      return "Added";
+    case "expense.update":
+      return "Edited";
+    case "expense.delete":
+      return "Deleted";
+    case "expense.restore":
+      return "Restored";
+    case "settlement.create":
+      return "Recorded a settlement";
+    case "settlement.delete":
+      return "Deleted a settlement";
+    case "settlement.restore":
+      return "Restored a settlement";
+    default:
+      return action;
+  }
+}

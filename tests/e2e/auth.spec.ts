@@ -33,6 +33,16 @@ test.describe("signed out", () => {
     await expect(page.getByRole("heading", { level: 2, name: "Coming next" })).toHaveCount(0);
   });
 
+  test("the retired LULLET_DEV_AUTH flag, set on the test server, signs nobody in", async ({
+    page,
+    request,
+  }) => {
+    await page.goto("/expenses");
+    await expect(page).toHaveURL(/\/signin\?next=%2Fexpenses$/);
+    await expect(page.getByTestId("signed-in-as")).toHaveCount(0);
+    expect((await request.get("/api/anything", { maxRedirects: 0 })).status()).toBe(401);
+  });
+
   test("API routes answer 401 and the health probe stays public", async ({ request }) => {
     const denied = await request.get("/api/anything", { maxRedirects: 0 });
     expect(denied.status()).toBe(401);
@@ -46,6 +56,19 @@ test.describe("signed out", () => {
     await expect(
       page.getByRole("heading", { level: 1, name: "Sign in with Telegram" }),
     ).toBeVisible();
+  });
+
+  test("ledger pages send a visitor whose session is no longer live to the sign-in page", async ({
+    page,
+  }) => {
+    await plantSessionCookie(page, "revoked-or-unknown");
+    for (const path of ["/expenses", "/expenses/new", "/balances", "/settlements/new"]) {
+      await page.goto(path);
+      await expect(page).toHaveURL(/\/signin/);
+      await expect(
+        page.getByRole("heading", { level: 1, name: "Sign in with Telegram" }),
+      ).toBeVisible();
+    }
   });
 
   test("the sign-in page does not redirect to another site through ?next", async ({
@@ -71,11 +94,10 @@ test.describe("login link", () => {
     await expect(page.getByRole("heading", { level: 1, name: "Sign in as Mei?" })).toBeVisible();
     await page.getByRole("button", { name: "Continue" }).click();
 
-    await expect(page).toHaveURL(`${baseURL}/`);
+    // The home page is the ledger: signing in lands on the expense list.
+    await expect(page).toHaveURL(`${baseURL}/expenses`);
     await expect(page.getByTestId("signed-in-as")).toHaveText("Mei");
-    await expect(page.getByRole("heading", { level: 1 })).toHaveText(
-      "Split the trip, not the friendship.",
-    );
+    await expect(page.getByRole("heading", { level: 1 })).toHaveText("Expenses");
 
     const cookies = await context.cookies();
     const session = cookies.find((c) => c.name === SESSION_COOKIE);
@@ -90,7 +112,7 @@ test.describe("login link", () => {
     await expect(page.getByTestId("signed-in-as")).toHaveText("Mei");
     // Already signed in: the sign-in page forwards to the app.
     await page.goto("/signin");
-    await expect(page).toHaveURL(`${baseURL}/`);
+    await expect(page).toHaveURL(`${baseURL}/expenses`);
   });
 
   test("the signed-in member can reach the members page and sees who is on the list", async ({

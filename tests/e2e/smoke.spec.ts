@@ -2,16 +2,16 @@ import { expect, test } from "./fixtures";
 
 // Every page needs a signed-in member, so these run in a page that is already signed in.
 test.describe("app shell", () => {
-  test("renders the placeholder home page", async ({ signedInPage: page }) => {
+  test("opens on the expense list under the lullet header", async ({ signedInPage: page }) => {
     await page.goto("/");
 
-    await expect(page).toHaveTitle("lullet");
-    await expect(page.getByRole("banner").getByText("lullet")).toBeVisible();
-    await expect(page.getByRole("heading", { level: 1 })).toHaveText(
-      "Split the trip, not the friendship.",
-    );
-    await expect(page.getByRole("heading", { level: 2, name: "Coming next" })).toBeVisible();
-    await expect(page.getByRole("listitem")).toHaveText([/Ledger/, /Balances/, /Telegram/]);
+    await expect(page).toHaveURL(/\/expenses$/);
+    await expect(page).toHaveTitle("Expenses | lullet");
+    const banner = page.getByRole("banner");
+    await expect(banner.getByText("lullet", { exact: true })).toBeVisible();
+    await expect(banner.getByText("Split trip costs, fairly")).toBeVisible();
+    await expect(banner.getByText("Europe Split")).toHaveCount(0);
+    await expect(page.getByRole("heading", { level: 1 })).toHaveText("Expenses");
   });
 
   test("fits the viewport without sideways scrolling", async ({ signedInPage: page }) => {

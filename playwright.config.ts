@@ -21,7 +21,9 @@ process.env.APP_URL = baseURL;
 export default defineConfig({
   testDir: "./tests/e2e",
   globalSetup: "./tests/e2e/global-setup.ts",
-  fullyParallel: true,
+  // The ledger tests share one group and empty its ledger before each test, so they run one at a time.
+  fullyParallel: false,
+  workers: 1,
   forbidOnly: isCI,
   retries: isCI ? 2 : 0,
   reporter: isCI ? [["github"], ["html", { open: "never" }]] : "list",
@@ -44,6 +46,7 @@ export default defineConfig({
       SESSION_SECRET: process.env.SESSION_SECRET,
       TELEGRAM_BOT_TOKEN: process.env.TELEGRAM_BOT_TOKEN,
       APP_URL: baseURL,
+      LULLET_DEV_AUTH: "1",
     },
     reuseExistingServer: !isCI,
     timeout: 120_000,

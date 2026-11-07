@@ -52,6 +52,24 @@ export default defineConfig([
     },
   },
   {
+    // Ledger data is reached only through the group-scoped store in src/server/ledger.
+    files: ["src/app/**/*.{ts,tsx}", "src/components/**/*.{ts,tsx}"],
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          patterns: [
+            {
+              group: ["@/db", "@/db/*", "drizzle-orm", "drizzle-orm/*", "pg"],
+              message:
+                "Pages and components get ledger data only through the store from '@/server/runtime' (openStore).",
+            },
+          ],
+        },
+      ],
+    },
+  },
+  {
     // Playwright fixtures hand out their value through a callback named `use`, which the React
     // hooks rule mistakes for React's `use`.
     files: ["tests/e2e/**/*.ts"],
