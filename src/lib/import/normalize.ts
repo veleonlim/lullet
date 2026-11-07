@@ -63,6 +63,11 @@ export const ISSUE_TEXT: Readonly<Record<string, string>> = {
   amount_unreadable: "The amount could not be read",
   negative_amount: "This looks like a refund or credit",
   billed_unreadable: "The billed amount could not be read and was left out",
+  billed_amount_disagrees:
+    "The billed amount read from the text differs from the model's own reading",
+  billed_currency_disagrees:
+    "The currency in the billed amount differs from the one the model reported",
+  billed_thousands_inferred: "The billed amount could be 1.234 or 1,234: check the decimals",
   date_missing: "No date could be read",
   future_date: "The date is in the future",
   merchant_missing: "No merchant could be read",
@@ -174,6 +179,15 @@ function readAmount(input: {
       issues: [...issues, "negative_amount"],
     };
   }
+  if (state === "unreadable") {
+    return {
+      minor: null,
+      currency: result.currency,
+      state,
+      currencyState,
+      issues: [...issues, "amount_unreadable"],
+    };
+  }
 
   const own = cleanText(input.value);
   if (own !== null) {
@@ -212,7 +226,15 @@ function readBilled(
   if (result.currency === amountCurrency && result.minor === amountMinor) {
     return { text, minor: null, currency: null, issues: [] };
   }
-  return { text, minor: result.minor, currency: result.currency, issues: [] };
+  const issues: string[] = [];
+  if (modelCurrency && modelCurrency !== result.currency) issues.push("billed_currency_disagrees");
+  if (result.warnings.includes("thousands_inferred")) issues.push("billed_thousands_inferred");
+  const own = cleanText(tx.billed_amount_value);
+  if (own !== null) {
+    const second = parseAmount(own, { currency: result.currency });
+    if (!parsed(second) || second.minor !== result.minor) issues.push("billed_amount_disagrees");
+  }
+  return { text, minor: result.minor, currency: result.currency, issues };
 }
 
 function readDate(
@@ -256,7 +278,10 @@ export function normalizeTransaction(tx: ExtractedTransaction, today: IsoDate): 
   }
 
   // Currency is never guessed: only a currency the screen makes clear is used.
-  const modelCurrency = tx.currency_confidence === "guess" ? null : asCurrency(tx.currency);
+  const modelCurrency =
+    tx.currency_confidence === "guess" || tx.currency_confidence === "unreadable"
+      ? null
+      : asCurrency(tx.currency);
   const modelCurrencyState: FieldState =
     modelCurrency === null ? "unreadable" : fromConfidence(tx.currency_confidence);
   const amount = readAmount({
@@ -273,7 +298,7 @@ export function normalizeTransaction(tx: ExtractedTransaction, today: IsoDate): 
 
   const billed = readBilled(tx, amount.currency, amount.minor);
   issues.push(...billed.issues);
-  if (billed.issues.includes("billed_unreadable")) {
+  if (billed.issues.length > 0) {
     states.amount = worseState(states.amount, "uncertain");
   }
 
@@ -292,7 +317,7 @@ export function normalizeTransaction(tx: ExtractedTransaction, today: IsoDate): 
 
   const unreadable = Object.values(states).includes("unreadable");
   return {
-    merchant,
+    merchant: states.merchant === "unreadable" ? null : merchant,
     dateText: cleanText(tx.date_text),
     spentOn: date.value,
     amountText: cleanText(tx.amount_text),

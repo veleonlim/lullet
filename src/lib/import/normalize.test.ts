@@ -165,10 +165,73 @@ describe("billed amounts", () => {
     expect(seed.fieldStates.amount).toBe("uncertain");
   });
 
+  it("flags a billed amount whose text and own reading disagree", () => {
+    const seed = row({
+      billed_amount_text: "S$1.234",
+      billed_amount_value: "1.23",
+      billed_currency: "SGD",
+    });
+    expect(seed.issues).toContain("billed_amount_disagrees");
+    expect(seed.fieldStates.amount).toBe("uncertain");
+  });
+
+  it("flags a billed currency that differs from the symbol in the text", () => {
+    const seed = row({
+      billed_amount_text: "S$75.20",
+      billed_amount_value: "75.20",
+      billed_currency: "USD",
+    });
+    expect(seed.issues).toContain("billed_currency_disagrees");
+    expect(seed.fieldStates.amount).toBe("uncertain");
+  });
+
+  it("flags an ambiguous thousands separator in the billed amount", () => {
+    const seed = row({
+      billed_amount_text: "S$1.234",
+      billed_amount_value: "1234.00",
+      billed_currency: "SGD",
+    });
+    expect(seed.issues).toContain("billed_thousands_inferred");
+    expect(seed.fieldStates.amount).toBe("uncertain");
+  });
+
+  it("leaves a consistent billed amount clear", () => {
+    const seed = row({
+      billed_amount_text: "S$75.20",
+      billed_amount_value: "75.20",
+      billed_currency: "SGD",
+    });
+    expect(seed.issues).toEqual([]);
+    expect(seed.fieldStates.amount).toBe("clear");
+  });
+
   it("drops a billed figure that repeats the amount", () => {
     const seed = row({ billed_amount_text: "€48,50", billed_currency: "EUR" });
     expect(seed.billedAmountMinor).toBeNull();
     expect(seed.issues).toEqual([]);
+  });
+});
+
+describe("values the model marked unreadable", () => {
+  it("are not kept, so a person must supply them", () => {
+    const merchant = row({ merchant: "Cafe X", merchant_confidence: "unreadable" });
+    expect(merchant.merchant).toBeNull();
+    expect(merchant.included).toBe(false);
+
+    const currency = row({
+      amount_text: "48.50",
+      currency: "EUR",
+      currency_confidence: "unreadable",
+    });
+    expect(currency.currency).toBeNull();
+
+    const amount = row({
+      amount_text: "48.50",
+      amount_value: "48.50",
+      amount_confidence: "unreadable",
+    });
+    expect(amount.amountMinor).toBeNull();
+    expect(amount.fieldStates.amount).toBe("unreadable");
   });
 });
 
