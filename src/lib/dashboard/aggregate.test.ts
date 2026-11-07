@@ -26,6 +26,9 @@ function expense(overrides: Partial<StoredExpense> = {}): StoredExpense {
     billedCurrency: null,
     rate: null,
     rateCurrency: null,
+    pricedRate: null,
+    pricedRateCurrency: null,
+    pricedSource: null,
     splitMethod: "equal",
     payers: [{ userId: "a", amountMinor: 14849 }],
     shares: [

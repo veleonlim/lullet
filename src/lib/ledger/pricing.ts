@@ -16,9 +16,9 @@ import {
   type RateBook,
   type Transfer,
 } from "@/lib/money";
-import type { StoredExpense, StoredSettlement } from "./types";
+import type { PricedSource, StoredExpense, StoredSettlement } from "./types";
 
-/** Turns the stored billed amount and rate columns into the money library's shapes. */
+/** Turns the stored billed amount, rate and priced rate columns into the money library's shapes. */
 function convertible(row: {
   spentOn?: string;
   settledOn?: string;
@@ -28,6 +28,9 @@ function convertible(row: {
   billedCurrency: string | null;
   rate: string | null;
   rateCurrency: string | null;
+  pricedRate: string | null;
+  pricedRateCurrency: string | null;
+  pricedSource: PricedSource | null;
 }): ConvertibleAmount {
   return {
     date: row.spentOn ?? row.settledOn ?? "",
@@ -40,6 +43,14 @@ function convertible(row: {
     rate:
       row.rate !== null && row.rateCurrency !== null
         ? { currency: assertCurrencyCode(row.rateCurrency), rate: parseRate(row.rate) }
+        : undefined,
+    priced:
+      row.pricedRate !== null && row.pricedRateCurrency !== null && row.pricedSource !== null
+        ? {
+            currency: assertCurrencyCode(row.pricedRateCurrency),
+            rate: parseRate(row.pricedRate),
+            source: row.pricedSource,
+          }
         : undefined,
   };
 }
@@ -93,6 +104,9 @@ export function expenseMarketRateNeeded(
     | "billedCurrency"
     | "rate"
     | "rateCurrency"
+    | "pricedRate"
+    | "pricedRateCurrency"
+    | "pricedSource"
   >,
   dayOverrides: Pick<RateBook, "dayOverride">,
 ): CurrencyCode | null {

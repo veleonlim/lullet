@@ -3,7 +3,12 @@
 import { revalidatePath } from "next/cache";
 import { validateDayCurrency, validateRateForm } from "@/lib/dashboard";
 import { describePricing, formatDay, type FieldErrors } from "@/lib/ledger";
-import { LedgerError, RateUnavailableError, type RepriceResult } from "@/server/ledger";
+import {
+  LedgerError,
+  RateUnavailableError,
+  type RepriceOffer,
+  type RepriceResult,
+} from "@/server/ledger";
 import { openStore } from "@/server/runtime";
 
 export interface RateState {
@@ -30,6 +35,17 @@ function summarise(result: RepriceResult, lead: string): RateState {
   };
 }
 
+function kept(offer: RepriceOffer, lead: string): RateState {
+  const count = (n: number) => `${String(n)} ${n === 1 ? "expense" : "expenses"}`;
+  const outlook =
+    offer.eligible === 0
+      ? ""
+      : offer.wouldChange === 0
+        ? ` Re-pricing the ${count(offer.eligible)} on this day would not change a figure.`
+        : ` Re-pricing would change ${String(offer.wouldChange)} of the ${count(offer.eligible)} on this day.`;
+  return { errors: {}, message: `${lead} Existing expenses keep their figures.${outlook}` };
+}
+
 async function guarded(work: () => Promise<RateState>): Promise<RateState> {
   try {
     const state = await work();
@@ -48,32 +64,22 @@ async function guarded(work: () => Promise<RateState>): Promise<RateState> {
   }
 }
 
-/** Sets a day's default rate. Its expenses are re-priced at once and every change is audit-logged. */
+/** Sets a day's default rate. No expense moves until the day is re-priced. */
 async function saveDayRate(_previous: RateState, formData: FormData): Promise<RateState> {
   const checked = validateRateForm(formData);
   if (!checked.ok) return { errors: checked.errors };
   const store = await openStore();
-  return guarded(async () =>
-    summarise(
-      await store.setDailyRate(checked.value),
-      `Rate saved for ${formatDay(checked.value.day)}.`,
-    ),
-  );
+  return guarded(async () => kept(await store.setDailyRate(checked.value), "Rate saved."));
 }
 
 async function clearDayRate(_previous: RateState, formData: FormData): Promise<RateState> {
   const checked = validateDayCurrency(formData);
   if (!checked.ok) return { errors: checked.errors };
   const store = await openStore();
-  return guarded(async () =>
-    summarise(
-      await store.clearDailyRate(checked.value),
-      `Rate removed for ${formatDay(checked.value.day)}.`,
-    ),
-  );
+  return guarded(async () => kept(await store.clearDailyRate(checked.value), "Rate removed."));
 }
 
-/** Re-checks a day: fetches a missing market rate and re-prices through the usual precedence. */
+/** Moves the day's eligible expenses to the day's current rate, fetching a missing market rate first. */
 async function repriceDay(_previous: RateState, formData: FormData): Promise<RateState> {
   const checked = validateDayCurrency(formData);
   if (!checked.ok) return { errors: checked.errors };

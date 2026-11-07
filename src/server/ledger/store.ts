@@ -3,7 +3,8 @@ import type { Database } from "@/db/client";
 import * as s from "@/db/schema";
 import type { Session } from "@/lib/auth/session";
 import {
-  diffPricing,
+  hasPricedRate,
+  planReprice,
   usesDayRate,
   type BudgetSettings,
   type DailyRateInput,
@@ -13,26 +14,30 @@ import {
 } from "@/lib/dashboard";
 import { FxRateError, type FxRateClient } from "@/lib/fx";
 import {
-  expenseMarketRateNeeded,
   marketRateNeeded,
   snapshotExpense,
   snapshotSettlement,
   type AuditAction,
   type ExpenseInput,
   type Member,
+  type PricedSource,
   type SettlementInput,
   type StoredExpense,
   type StoredSettlement,
 } from "@/lib/ledger";
 import {
+  bookRate,
   createRateBook,
   formatRate,
+  pricedRateFor,
   rateEquals,
   parseRate,
   rateEntryFromRow,
   REPORTING_CURRENCY,
+  type ConvertibleAmount,
   type CurrencyCode,
   type IsoDate,
+  type PricedRate,
   type RateBook,
 } from "@/lib/money";
 import {
@@ -98,8 +103,16 @@ export interface DayRateRow {
   readonly rate: string;
 }
 
+/** What re-pricing a day would do, offered after its day rate changes. Nothing has moved yet. */
+export interface RepriceOffer {
+  /** Expenses on the day that the day's rate decides: the ones re-pricing moves. */
+  readonly eligible: number;
+  /** Of those, how many would get a different SGD figure. */
+  readonly wouldChange: number;
+}
+
 export interface RepriceResult {
-  /** Expenses on the day whose SGD figure the day's rate can decide. */
+  /** Expenses on the day that the day's rate decides. */
   readonly affected: number;
   /** The expenses whose SGD figure actually changed. */
   readonly changes: readonly RepriceChange[];
@@ -141,11 +154,14 @@ export interface LedgerStore {
   listDayRates(currency: CurrencyCode): Promise<DayRateRow[]>;
   /** Stored market rates for one currency between two days (inclusive). */
   listMarketRates(currency: CurrencyCode, from: IsoDate, to: IsoDate): Promise<DayRateRow[]>;
-  /** Sets the day's default rate; its expenses are re-priced at once, and every change is audit-logged. */
-  setDailyRate(input: DailyRateInput): Promise<RepriceResult>;
-  /** Removes the day's default rate, so the market rate applies again. Refused if that would leave an expense unpriced. */
-  clearDailyRate(input: { day: IsoDate; currency: CurrencyCode }): Promise<RepriceResult>;
-  /** Re-checks a day: fetches a missing market rate, re-prices through the precedence and audit-logs the result. */
+  /** Sets the day's default rate (audit-logged). No expense figure moves; the offer says what re-pricing would do. */
+  setDailyRate(input: DailyRateInput): Promise<RepriceOffer>;
+  /** Removes the day's default rate (audit-logged). No expense figure moves; the offer says what re-pricing would do. */
+  clearDailyRate(input: { day: IsoDate; currency: CurrencyCode }): Promise<RepriceOffer>;
+  /**
+   * Moves the day's eligible expenses and settlements to the day's current rate (the group's own, else
+   * the market's, fetched if missing). Every expense whose figure changes is audit-logged.
+   */
   repriceDay(input: { day: IsoDate; currency: CurrencyCode }): Promise<RepriceResult>;
   createSettlement(input: SettlementInput): Promise<StoredSettlement>;
   deleteSettlement(id: string): Promise<StoredSettlement>;
@@ -274,6 +290,9 @@ export function createLedgerKit(options: StoreOptions): LedgerKit {
       billedCurrency: row.billedCurrency,
       rate: row.rate,
       rateCurrency: row.rateCurrency,
+      pricedRate: row.pricedRate,
+      pricedRateCurrency: row.pricedRateCurrency,
+      pricedSource: pricedSourceOf(row.pricedSource),
       splitMethod: row.splitMethod,
       payers: payers
         .filter((payer) => payer.expenseId === row.id)
@@ -324,6 +343,9 @@ export function createLedgerKit(options: StoreOptions): LedgerKit {
       billedCurrency: row.billedCurrency,
       rate: row.rate,
       rateCurrency: row.rateCurrency,
+      pricedRate: row.pricedRate,
+      pricedRateCurrency: row.pricedRateCurrency,
+      pricedSource: pricedSourceOf(row.pricedSource),
       settledOn: row.settledOn,
       note: row.note,
       createdBy: row.createdBy,
@@ -492,18 +514,17 @@ export function createLedgerKit(options: StoreOptions): LedgerKit {
     ]);
     await ensureMarketRate({
       date: input.spentOn,
-      needed: (overrides) =>
-        marketRateNeeded(
-          {
-            date: input.spentOn,
-            amountMinor: input.amountMinor,
-            currency: input.currency,
-            billed: input.billed ?? undefined,
-            rate: input.rate ?? undefined,
-          },
-          overrides,
-        ),
+      needed: (overrides) => marketRateNeeded(toConvertible(input.spentOn, input), overrides),
     });
+  }
+
+  /** The rate to store on a record so its SGD figure stays put when the day's rates change later. */
+  async function pricedColumns(executor: Executor, amount: ConvertibleAmount) {
+    const book = await loadRateBook(
+      [{ date: amount.date, currencies: [amount.currency, amount.billed?.currency ?? null] }],
+      executor,
+    );
+    return pricedColumnsOf(pricedRateFor(amount, book));
   }
 
   /** Inserts an expense with its payers and shares and an audit row; the caller supplies the transaction. */
@@ -517,6 +538,7 @@ export function createLedgerKit(options: StoreOptions): LedgerKit {
       .insert(s.expenses)
       .values({
         ...expenseColumns(input),
+        ...(await pricedColumns(tx, toConvertible(input.spentOn, input))),
         ...(link ? { importId: link.importId, importRowId: link.importRowId } : {}),
         groupId,
         createdBy: session.userId,
@@ -641,6 +663,10 @@ export function createLedgerKit(options: StoreOptions): LedgerKit {
     return and(eq(s.expenses.spentOn, day), isNull(s.expenses.deletedAt));
   }
 
+  function activeSettlementsOnDay(day: IsoDate): SQL | undefined {
+    return and(eq(s.settlements.settledOn, day), isNull(s.settlements.deletedAt));
+  }
+
   function bookFor(executor: Executor, expenses: readonly StoredExpense[]): Promise<RateBook> {
     return loadRateBook(
       expenses.map((expense) => ({
@@ -651,11 +677,7 @@ export function createLedgerKit(options: StoreOptions): LedgerKit {
     );
   }
 
-  async function auditReprice(
-    tx: Tx,
-    changes: readonly RepriceChange[],
-    reason: "daily_rate.set" | "daily_rate.clear" | "daily_rate.reprice",
-  ): Promise<void> {
+  async function auditReprice(tx: Tx, changes: readonly RepriceChange[]): Promise<void> {
     for (const change of changes) {
       await audit(tx, {
         action: "expense.reprice",
@@ -666,7 +688,6 @@ export function createLedgerKit(options: StoreOptions): LedgerKit {
           pricing: change.after,
           description: change.description,
           spentOn: change.spentOn,
-          reason,
         },
       });
     }
@@ -688,16 +709,25 @@ export function createLedgerKit(options: StoreOptions): LedgerKit {
     );
   }
 
-  /** Changes (or removes) a day's default rate and re-prices that day's expenses in one transaction. */
+  /** What re-pricing the day would do right now; reads only. */
+  async function offerFor(
+    executor: Executor,
+    day: IsoDate,
+    currency: CurrencyCode,
+  ): Promise<RepriceOffer> {
+    const expenses = await readExpenses(executor, activeOnDay(day));
+    const book = await loadRateBook([{ date: day, currencies: [currency] }], executor);
+    const steps = planReprice(expenses, currency, book);
+    return { eligible: steps.length, wouldChange: steps.filter((step) => step.change).length };
+  }
+
+  /** Changes (or removes) a day's default rate. Existing figures stay as they are until the day is re-priced. */
   async function writeDayRate(change: {
     day: IsoDate;
     currency: CurrencyCode;
     rate: DailyRateInput["rate"] | null;
-  }): Promise<RepriceResult> {
+  }): Promise<RepriceOffer> {
     return db.transaction(async (tx) => {
-      const expenses = await readExpenses(tx, activeOnDay(change.day));
-      const affected = expenses.filter((expense) => usesDayRate(expense, change.currency)).length;
-      const before = await bookFor(tx, expenses);
       const [previous] = await tx
         .select()
         .from(s.dailyRates)
@@ -707,47 +737,44 @@ export function createLedgerKit(options: StoreOptions): LedgerKit {
         change.rate === null
           ? previous === undefined
           : previous !== undefined && rateEquals(parseRate(previous.rate), change.rate);
-      if (unchanged) return { affected, changes: [] };
-
-      if (change.rate === null) {
-        await tx.delete(s.dailyRates).where(dayRateKey(change.day, change.currency));
-      } else {
-        const at = now();
-        await tx
-          .insert(s.dailyRates)
-          .values({
-            groupId,
-            rateDate: change.day,
-            base: change.currency,
-            quote: REPORTING_CURRENCY,
-            rate: formatRate(change.rate),
-            setBy: session.userId,
-            createdAt: at,
-            updatedAt: at,
-          })
-          .onConflictDoUpdate({
-            target: [
-              s.dailyRates.groupId,
-              s.dailyRates.rateDate,
-              s.dailyRates.base,
-              s.dailyRates.quote,
-            ],
-            set: { rate: formatRate(change.rate), setBy: session.userId, updatedAt: at },
-          });
+      if (!unchanged) {
+        if (change.rate === null) {
+          await tx.delete(s.dailyRates).where(dayRateKey(change.day, change.currency));
+        } else {
+          const at = now();
+          await tx
+            .insert(s.dailyRates)
+            .values({
+              groupId,
+              rateDate: change.day,
+              base: change.currency,
+              quote: REPORTING_CURRENCY,
+              rate: formatRate(change.rate),
+              setBy: session.userId,
+              createdAt: at,
+              updatedAt: at,
+            })
+            .onConflictDoUpdate({
+              target: [
+                s.dailyRates.groupId,
+                s.dailyRates.rateDate,
+                s.dailyRates.base,
+                s.dailyRates.quote,
+              ],
+              set: { rate: formatRate(change.rate), setBy: session.userId, updatedAt: at },
+            });
+        }
+        const describe = (rate: string | null) =>
+          rate === null ? null : { day: change.day, currency: change.currency, rate };
+        await audit(tx, {
+          action: change.rate === null ? "daily_rate.clear" : "daily_rate.set",
+          entityType: "daily_rate",
+          entityId: null,
+          before: describe(previous ? formatRate(parseRate(previous.rate)) : null),
+          after: describe(change.rate ? formatRate(change.rate) : null),
+        });
       }
-      const after = await bookFor(tx, expenses);
-      const changes = diffPricing(expenses, before, after);
-      const describe = (rate: string | null) =>
-        rate === null ? null : { day: change.day, currency: change.currency, rate };
-      await audit(tx, {
-        action: change.rate === null ? "daily_rate.clear" : "daily_rate.set",
-        entityType: "daily_rate",
-        entityId: null,
-        before: describe(previous ? formatRate(parseRate(previous.rate)) : null),
-        after: describe(change.rate ? formatRate(change.rate) : null),
-      });
-      await auditReprice(tx, changes, change.rate === null ? "daily_rate.clear" : "daily_rate.set");
-      return { affected, changes };
+      return offerFor(tx, change.day, change.currency);
     });
   }
 
@@ -831,7 +858,11 @@ export function createLedgerKit(options: StoreOptions): LedgerKit {
 
         await tx
           .update(s.expenses)
-          .set({ ...expenseColumns(input), updatedAt: now() })
+          .set({
+            ...expenseColumns(input),
+            ...(await pricedColumns(tx, toConvertible(input.spentOn, input))),
+            updatedAt: now(),
+          })
           .where(and(eq(s.expenses.groupId, groupId), eq(s.expenses.id, id)));
         await tx
           .delete(s.expensePayers)
@@ -1053,36 +1084,62 @@ export function createLedgerKit(options: StoreOptions): LedgerKit {
     async clearDailyRate(input) {
       await members();
       assertForeign(input.currency);
-      // Without the day rate the market rate decides, so it must be on file before the day rate goes.
-      const expenses = await readExpenses(db, activeOnDay(input.day));
-      const dayRates = await db
-        .select()
-        .from(s.dailyRates)
-        .where(dayRateKey(input.day, input.currency));
-      if (dayRates.length > 0 && expenses.some((expense) => usesDayRate(expense, input.currency))) {
-        await storeMarketRate(input.day, input.currency);
-      }
       return writeDayRate({ day: input.day, currency: input.currency, rate: null });
     },
 
     async repriceDay(input) {
       await members();
       assertForeign(input.currency);
-      const expenses = await readExpenses(db, activeOnDay(input.day));
-      const before = await bookFor(db, expenses);
-      // A day whose market rate was never stored leaves its expenses unpriced: fetch it once.
-      const missing = expenses.some(
-        (expense) =>
-          usesDayRate(expense, input.currency) &&
-          expenseMarketRateNeeded(expense, before) === input.currency,
-      );
-      if (missing) await storeMarketRate(input.day, input.currency);
+      // Without a day rate the market rate decides, so it must be on file before anything moves to it.
+      const [override] = await db
+        .select({ rate: s.dailyRates.rate })
+        .from(s.dailyRates)
+        .where(dayRateKey(input.day, input.currency));
+      if (!override) {
+        const [expenses, settlements] = await Promise.all([
+          readExpenses(db, activeOnDay(input.day)),
+          readSettlements(db, activeSettlementsOnDay(input.day)),
+        ]);
+        if (
+          expenses.some((expense) => usesDayRate(expense, input.currency)) ||
+          settlements.some((settlement) => usesDayRate(settlement, input.currency))
+        ) {
+          await storeMarketRate(input.day, input.currency);
+        }
+      }
 
       return db.transaction(async (tx) => {
-        const current = await readExpenses(tx, activeOnDay(input.day));
-        const after = await bookFor(tx, current);
-        const changes = diffPricing(current, before, after);
-        const affected = current.filter((expense) => usesDayRate(expense, input.currency)).length;
+        // Hold the day's expenses so an edit cannot be overwritten by a stale rate.
+        await tx
+          .select({ id: s.expenses.id })
+          .from(s.expenses)
+          .where(and(eq(s.expenses.groupId, groupId), activeOnDay(input.day)))
+          .for("update");
+        const expenses = await readExpenses(tx, activeOnDay(input.day));
+        const settlements = await readSettlements(tx, activeSettlementsOnDay(input.day));
+        const book = await loadRateBook([{ date: input.day, currencies: [input.currency] }], tx);
+
+        const steps = planReprice(expenses, input.currency, book);
+        for (const { expense, target } of steps) {
+          if (target === null || hasPricedRate(expense, target)) continue;
+          await tx
+            .update(s.expenses)
+            .set(pricedColumnsOf(target))
+            .where(and(eq(s.expenses.groupId, groupId), eq(s.expenses.id, expense.id)));
+        }
+        let settlementsMoved = 0;
+        for (const settlement of settlements) {
+          if (!usesDayRate(settlement, input.currency)) continue;
+          const target = bookRate(settlement.settledOn, input.currency, book) ?? null;
+          if (target === null || hasPricedRate(settlement, target)) continue;
+          await tx
+            .update(s.settlements)
+            .set(pricedColumnsOf(target))
+            .where(and(eq(s.settlements.groupId, groupId), eq(s.settlements.id, settlement.id)));
+          settlementsMoved += 1;
+        }
+
+        const changes = steps.flatMap((step) => (step.change ? [step.change] : []));
         await audit(tx, {
           action: "daily_rate.reprice",
           entityType: "daily_rate",
@@ -1091,21 +1148,23 @@ export function createLedgerKit(options: StoreOptions): LedgerKit {
           after: {
             day: input.day,
             currency: input.currency,
-            affected,
+            affected: steps.length,
             changed: changes.length,
+            settlements: settlementsMoved,
           },
         });
-        await auditReprice(tx, changes, "daily_rate.reprice");
-        return { affected, changes };
+        await auditReprice(tx, changes);
+        return { affected: steps.length, changes };
       });
     },
 
     async createSettlement(input) {
       await members();
       await assertMembers([input.fromUserId, input.toUserId]);
+      const amount = toConvertible(input.settledOn, input);
       await ensureMarketRate({
         date: input.settledOn,
-        needed: (overrides) => marketRateNeeded(toConvertible(input), overrides),
+        needed: (overrides) => marketRateNeeded(amount, overrides),
       });
       return db.transaction(async (tx) => {
         const [row] = await tx
@@ -1120,6 +1179,7 @@ export function createLedgerKit(options: StoreOptions): LedgerKit {
             billedCurrency: input.billed?.currency ?? null,
             rate: input.rate ? formatRate(input.rate.rate) : null,
             rateCurrency: input.rate?.currency ?? null,
+            ...(await pricedColumns(tx, amount)),
             settledOn: input.settledOn,
             note: input.note,
             createdBy: session.userId,
@@ -1166,12 +1226,28 @@ export function createLedgerKit(options: StoreOptions): LedgerKit {
   };
 }
 
-function toConvertible(input: SettlementInput) {
+function toConvertible(
+  date: IsoDate,
+  input: Pick<ExpenseInput, "amountMinor" | "currency" | "billed" | "rate">,
+): ConvertibleAmount {
   return {
-    date: input.settledOn,
+    date,
     amountMinor: input.amountMinor,
     currency: input.currency,
     billed: input.billed ?? undefined,
     rate: input.rate ?? undefined,
   };
+}
+
+function pricedColumnsOf(priced: PricedRate | null) {
+  return {
+    pricedRate: priced ? formatRate(priced.rate) : null,
+    pricedRateCurrency: priced?.currency ?? null,
+    pricedSource: priced?.source ?? null,
+  };
+}
+
+function pricedSourceOf(value: string | null): PricedSource | null {
+  if (value === null || value === "day_override" || value === "market") return value;
+  throw new Error(`unknown priced_source "${value}"`);
 }

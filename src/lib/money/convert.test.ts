@@ -1,7 +1,9 @@
 import fc from "fast-check";
 import { describe, expect, it } from "vitest";
 import {
+  bookRate,
   createRateBook,
+  pricedRateFor,
   rateEntryFromRow,
   toReportingCurrency,
   type ConvertibleAmount,
@@ -250,5 +252,89 @@ describe("rateEntryFromRow", () => {
     expect(() => rateEntryFromRow({ ...row, ...patch })).toThrow(
       expect.objectContaining({ code: "invalid_rate" }),
     );
+  });
+});
+
+describe("a stored pricing rate", () => {
+  const priced = { currency: "EUR", rate: parseRate("1.40"), source: "market" } as const;
+
+  it("is used instead of the book, and reports where it came from", () => {
+    expect(toReportingCurrency({ ...base, priced }, book)).toMatchObject({
+      source: "market",
+      sgdMinor: 14_000,
+      rate: parseRate("1.40"),
+    });
+    const fromOverride = { ...priced, rate: parseRate("1.33"), source: "day_override" } as const;
+    expect(toReportingCurrency({ ...base, priced: fromOverride }, book)).toMatchObject({
+      source: "day_override",
+      sgdMinor: 13_300,
+    });
+  });
+
+  it("does not move when the book has no rate, or a different one", () => {
+    expect(toReportingCurrency({ ...base, priced }, createRateBook({}))).toMatchObject({
+      sgdMinor: 14_000,
+    });
+  });
+
+  it("still loses to SGD, a billed SGD figure and a rate set on the expense", () => {
+    expect(toReportingCurrency({ ...base, currency: "SGD", priced }, book).source).toBe("native");
+    expect(
+      toReportingCurrency(
+        { ...base, billed: { amountMinor: 14_999, currency: "SGD" }, priced },
+        book,
+      ),
+    ).toMatchObject({ source: "billed", sgdMinor: 14_999 });
+    expect(
+      toReportingCurrency(
+        { ...base, rate: { currency: "EUR", rate: parseRate("1.6") }, priced },
+        book,
+      ),
+    ).toMatchObject({ source: "expense_rate", sgdMinor: 16_000 });
+  });
+
+  it("is only used for the currency that gets converted", () => {
+    // The bank billed CHF, so a stored EUR rate has no say and the book decides.
+    const result = toReportingCurrency(
+      { ...base, billed: { amountMinor: 10_000, currency: "CHF" }, priced },
+      book,
+    );
+    expect(result).toMatchObject({ source: "market", rate: parseRate("1.5603") });
+  });
+});
+
+describe("bookRate and pricedRateFor", () => {
+  it("bookRate prefers the day override, then the market rate", () => {
+    expect(bookRate("2026-11-02", "EUR", book)).toEqual({
+      currency: "EUR",
+      rate: parseRate("1.51"),
+      source: "day_override",
+    });
+    expect(bookRate("2026-11-03", "EUR", book)).toMatchObject({ source: "market" });
+    expect(bookRate("2026-11-09", "EUR", book)).toBeUndefined();
+  });
+
+  it("stores the rate that prices the amount, for the billed currency when there is one", () => {
+    expect(pricedRateFor(base, book)).toMatchObject({ currency: "EUR", source: "day_override" });
+    expect(
+      pricedRateFor({ ...base, billed: { amountMinor: 9_840, currency: "CHF" } }, book),
+    ).toMatchObject({ currency: "CHF", rate: parseRate("1.5603"), source: "market" });
+  });
+
+  it("stores nothing when no rate prices the amount", () => {
+    expect(pricedRateFor({ ...base, currency: "SGD" }, book)).toBeNull();
+    expect(
+      pricedRateFor({ ...base, billed: { amountMinor: 1, currency: "SGD" } }, book),
+    ).toBeNull();
+    expect(
+      pricedRateFor({ ...base, rate: { currency: "EUR", rate: parseRate("1.6") } }, book),
+    ).toBeNull();
+    expect(pricedRateFor({ ...base, date: "2026-11-09" }, book)).toBeNull();
+  });
+
+  it("stores a rate when the expense's own rate is for another currency", () => {
+    expect(
+      pricedRateFor({ ...base, rate: { currency: "CHF", rate: parseRate("1.7") } }, book),
+    ).toMatchObject({ currency: "EUR" });
   });
 });

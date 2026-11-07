@@ -4,6 +4,7 @@ import * as s from "@/db/schema";
 import { scopedDay, rollup } from "@/lib/dashboard";
 import {
   priceExpenses,
+  priceSettlement,
   repriceSnapshotSchema,
   summariseLedger,
   type CategoryId,
@@ -12,7 +13,7 @@ import { parseRate } from "@/lib/money";
 import { ConflictError, RateUnavailableError } from "@/server/ledger";
 import { loadDashboardModel } from "@/server/dashboard";
 import { closeTestDb, expectPgError, PG, resetDatabase, seedGroup, testDb } from "./helpers";
-import { expenseInput, FakeFx, RATES, storeFor } from "./ledger-support";
+import { expenseInput, FakeFx, RATES, settlementInput, storeFor } from "./ledger-support";
 
 const db = testDb();
 
@@ -264,6 +265,27 @@ describe("daily exchange rates and re-pricing", () => {
     );
   }
 
+  /** Every figure a page shows that depends on prices: balances, settle-up, and the dashboard's totals. */
+  async function figuresShown(store: ReturnType<typeof storeFor>) {
+    const ledger = await store.loadLedger();
+    const summary = summariseLedger({
+      memberOrder: ledger.members.map((m) => m.userId),
+      expenses: ledger.expenses,
+      settlements: ledger.settlements,
+      book: ledger.book,
+    });
+    const { model } = await loadDashboardModel(store, NOW);
+    return {
+      expenses: await sgdFigures(store),
+      settlements: ledger.settlements.map((x) => priceSettlement(x, ledger.book)?.sgdMinor ?? null),
+      balances: summary.balances.reporting,
+      transfers: summary.transfers,
+      total: summary.totalSpendMinor,
+      dashboardTotal: model.totalMinor,
+      dayTotals: model.days.map((x) => [x.date, x.totalMinor]),
+    };
+  }
+
   async function seedDay() {
     const seed = await seedGroup(db);
     const store = storeFor(db, seed);
@@ -291,36 +313,157 @@ describe("daily exchange rates and re-pricing", () => {
     await store.createExpense(
       expenseInput(seed, { description: "Other day", amount: "100.00", spentOn: "2026-11-03" }),
     );
+    await store.createSettlement(
+      settlementInput(seed, { amount: "10.00", currency: "EUR", settledOn: day }),
+    );
     return { seed, store };
   }
 
-  it("re-prices only the expenses a day rate can decide, through the usual precedence", async () => {
-    const { seed, store } = await seedDay();
-    expect(await sgdFigures(store)).toMatchObject({
-      Market: 15000,
-      "Own rate": 17000,
-      Billed: 12345,
-      Native: 10000,
-      Francs: 16000,
-      "Other day": 15000,
-    });
+  async function stored(description: string) {
+    const [row] = await db.select().from(s.expenses).where(eq(s.expenses.description, description));
+    if (!row) throw new Error(`no expense ${description}`);
+    return row;
+  }
 
-    const result = await store.setDailyRate({ day, currency: "EUR", rate: rate("1.6") });
-    expect(result.affected).toBe(1); // "Market" only
+  const startingFigures = {
+    Market: 15000,
+    "Own rate": 17000,
+    Billed: 12345,
+    Native: 10000,
+    Francs: 16000,
+    "Other day": 15000,
+  };
+
+  it("records the rate each expense and settlement was priced with when it was saved", async () => {
+    const { seed, store } = await seedDay();
+    expect(await sgdFigures(store)).toMatchObject(startingFigures);
+
+    const priced = async (description: string) => {
+      const row = await stored(description);
+      return [row.pricedRate, row.pricedRateCurrency, row.pricedSource];
+    };
+    expect(await priced("Market")).toEqual(["1.5000000000", "EUR", "market"]);
+    expect(await priced("Francs")).toEqual(["1.6000000000", "CHF", "market"]);
+    // Nothing is stored when no rate prices the amount: its own rate, a billed SGD figure, native SGD.
+    expect(await priced("Own rate")).toEqual([null, null, null]);
+    expect(await priced("Billed")).toEqual([null, null, null]);
+    expect(await priced("Native")).toEqual([null, null, null]);
+    const [settlement] = await db.select().from(s.settlements);
+    expect([
+      settlement?.pricedRate,
+      settlement?.pricedRateCurrency,
+      settlement?.pricedSource,
+    ]).toEqual(["1.5000000000", "EUR", "market"]);
+
+    // A day rate in force when an expense is saved is the rate it is priced with.
+    await store.setDailyRate({ day, currency: "EUR", rate: rate("1.6") });
+    await store.createExpense(expenseInput(seed, { description: "Later", amount: "100.00" }));
+    expect(await priced("Later")).toEqual(["1.6000000000", "EUR", "day_override"]);
+    // The bank billed francs, so the franc rate is the one stored, not the shown euros' rate.
+    await store.createExpense(
+      expenseInput(seed, {
+        description: "Billed francs",
+        amount: "100.00",
+        billed: { amount: "50.00", currency: "CHF" },
+      }),
+    );
+    expect(await priced("Billed francs")).toEqual(["1.6000000000", "CHF", "market"]);
+  });
+
+  it("prices an edited expense again at the rates of that moment, and a restored one as it was", async () => {
+    const { seed, store } = await seedDay();
+    const market = await stored("Market");
+    await store.setDailyRate({ day, currency: "EUR", rate: rate("1.6") });
+    expect((await sgdFigures(store)).Market).toBe(15000);
+
+    const current = await store.getExpense(market.id);
+    if (!current) throw new Error("missing expense");
+    await store.updateExpense(
+      market.id,
+      expenseInput(seed, { description: "Market", amount: "100.00" }),
+      current.updatedAt,
+    );
+    expect((await sgdFigures(store)).Market).toBe(16000);
+    expect((await stored("Market")).pricedSource).toBe("day_override");
+
+    // An edit that gives the expense its own rate drops the stored one.
+    const again = await store.getExpense(market.id);
+    if (!again) throw new Error("missing expense");
+    await store.updateExpense(
+      market.id,
+      expenseInput(seed, {
+        description: "Market",
+        amount: "100.00",
+        rate: { rate: "1.7", currency: "EUR" },
+      }),
+      again.updatedAt,
+    );
+    expect((await stored("Market")).pricedRate).toBeNull();
+    expect((await sgdFigures(store)).Market).toBe(17000);
+
+    // Deleting and restoring never re-prices.
+    const francs = await stored("Francs");
+    await store.deleteExpense(francs.id);
+    await store.setDailyRate({ day, currency: "CHF", rate: rate("2") });
+    await store.restoreExpense(francs.id);
+    expect((await sgdFigures(store)).Francs).toBe(16000);
+  });
+
+  it("saving or removing a day rate moves no expense, balance, settle-up or dashboard figure, and offers a re-price", async () => {
+    const { seed, store } = await seedDay();
+    const before = await figuresShown(store);
+
+    const saved = await store.setDailyRate({ day, currency: "EUR", rate: rate("1.6") });
+    // "Market" is the one expense on the day that the rate decides, plus nothing else.
+    expect(saved).toEqual({ eligible: 1, wouldChange: 1 });
+    expect(await figuresShown(store)).toEqual(before);
+
+    const changed = await store.setDailyRate({ day, currency: "EUR", rate: rate("1.55") });
+    expect(changed).toEqual({ eligible: 1, wouldChange: 1 });
+    expect(await figuresShown(store)).toEqual(before);
+
+    const cleared = await store.clearDailyRate({ day, currency: "EUR" });
+    expect(cleared).toEqual({ eligible: 1, wouldChange: 0 });
+    expect(await figuresShown(store)).toEqual(before);
+
+    // Only the rate itself was logged: no expense was re-priced.
+    const actions = (
+      await db
+        .select()
+        .from(s.auditLog)
+        .where(eq(s.auditLog.groupId, seed.groupId))
+        .orderBy(asc(s.auditLog.id))
+    ).map((row) => row.action);
+    expect(actions.filter((a) => a === "daily_rate.set")).toHaveLength(2);
+    expect(actions.filter((a) => a === "daily_rate.clear")).toHaveLength(1);
+    expect(actions).not.toContain("expense.reprice");
+    expect(actions).not.toContain("daily_rate.reprice");
+  });
+
+  it("re-prices exactly the expenses the day's rate decides, and the settlements of that day", async () => {
+    const { seed, store } = await seedDay();
+    const before = await figuresShown(store);
+    await store.setDailyRate({ day, currency: "EUR", rate: rate("1.6") });
+
+    const result = await store.repriceDay({ day, currency: "EUR" });
+    expect(result.affected).toBe(1);
     expect(result.changes.map((c) => c.description)).toEqual(["Market"]);
     expect(result.changes[0]).toMatchObject({
       before: { sgdMinor: 15000, source: "market", rate: "1.5" },
       after: { sgdMinor: 16000, source: "day_override", rate: "1.6" },
     });
+
     // Every other expense keeps its figure: own rate, billed SGD, native SGD, another currency, another day.
-    expect(await sgdFigures(store)).toMatchObject({
-      Market: 16000,
-      "Own rate": 17000,
-      Billed: 12345,
-      Native: 10000,
-      Francs: 16000,
-      "Other day": 15000,
-    });
+    const after = await figuresShown(store);
+    expect(after.expenses).toEqual({ ...startingFigures, Market: 16000 });
+    expect(after.settlements).toEqual([1600]); // EUR 10.00 at 1.6, was 1500
+    expect(before.settlements).toEqual([1500]);
+    expect(after.total).toBe(before.total + 1000);
+    expect(after.dashboardTotal).toBe(before.dashboardTotal + 1000);
+    expect(after.dayTotals).toEqual(
+      before.dayTotals.map(([d, total]) => [d, d === day ? Number(total) + 1000 : total]),
+    );
+    expect(after.balances).not.toEqual(before.balances);
 
     expect(await store.listDayRates("EUR")).toEqual([{ day, currency: "EUR", rate: "1.6" }]);
     const market = await store.listMarketRates("EUR", "2026-11-01", "2026-11-30");
@@ -329,7 +472,7 @@ describe("daily exchange rates and re-pricing", () => {
       ["2026-11-03", "1.5"],
     ]);
 
-    // Audit-logged: the rate itself, and the expense's old and new figure in its history.
+    // Audit-logged: the rate itself, the day, and the expense's old and new figure in its history.
     const audit = await db
       .select()
       .from(s.auditLog)
@@ -338,6 +481,14 @@ describe("daily exchange rates and re-pricing", () => {
     const actions = audit.map((row) => row.action);
     expect(actions.filter((a) => a === "daily_rate.set")).toHaveLength(1);
     expect(actions.filter((a) => a === "expense.reprice")).toHaveLength(1);
+    const summary = audit.find((row) => row.action === "daily_rate.reprice");
+    expect(summary?.after).toMatchObject({
+      day,
+      currency: "EUR",
+      affected: 1,
+      changed: 1,
+      settlements: 1,
+    });
     const marketId = result.changes[0]?.expenseId ?? "";
     const history = await store.expenseHistory(marketId);
     const entry = history.find((h) => h.action === "expense.reprice");
@@ -347,62 +498,86 @@ describe("daily exchange rates and re-pricing", () => {
       sgdMinor: 16000,
       source: "day_override",
     });
+
+    // Re-pricing again finds nothing more to move.
+    expect((await store.repriceDay({ day, currency: "EUR" })).changes).toEqual([]);
   });
 
   it("changes the rate again, and does nothing (and logs nothing) when it is the same", async () => {
     const { store } = await seedDay();
     await store.setDailyRate({ day, currency: "EUR", rate: rate("1.6") });
-    const same = await store.setDailyRate({ day, currency: "EUR", rate: rate("1.60") });
-    expect(same.changes).toEqual([]);
-    const again = await store.setDailyRate({ day, currency: "EUR", rate: rate("1.55") });
-    expect(again.changes[0]).toMatchObject({
-      before: { sgdMinor: 16000 },
-      after: { sgdMinor: 15500 },
-    });
+    await store.setDailyRate({ day, currency: "EUR", rate: rate("1.60") });
+    await store.setDailyRate({ day, currency: "EUR", rate: rate("1.55") });
     const rows = await db.select().from(s.dailyRates);
     expect(rows).toHaveLength(1);
     expect(rows[0]?.rate).toMatch(/^1\.55/);
     const sets = await db.select().from(s.auditLog).where(eq(s.auditLog.action, "daily_rate.set"));
     expect(sets).toHaveLength(2);
     expect(sets[1]?.before).toEqual({ day, currency: "EUR", rate: "1.6" });
+
+    expect((await sgdFigures(store)).Market).toBe(15000);
+    const result = await store.repriceDay({ day, currency: "EUR" });
+    expect(result.changes[0]).toMatchObject({
+      before: { sgdMinor: 15000 },
+      after: { sgdMinor: 15500 },
+    });
   });
 
-  it("goes back to the stored market rate when the day rate is removed", async () => {
+  it("goes back to the stored market rate when the day is re-priced after the day rate is removed", async () => {
     const { store } = await seedDay();
     await store.setDailyRate({ day, currency: "EUR", rate: rate("1.6") });
-    const result = await store.clearDailyRate({ day, currency: "EUR" });
+    await store.repriceDay({ day, currency: "EUR" });
+    expect((await sgdFigures(store)).Market).toBe(16000);
+
+    const offer = await store.clearDailyRate({ day, currency: "EUR" });
+    expect(offer).toEqual({ eligible: 1, wouldChange: 1 });
+    expect(await store.listDayRates("EUR")).toEqual([]);
+    expect((await sgdFigures(store)).Market).toBe(16000);
+
+    const result = await store.repriceDay({ day, currency: "EUR" });
     expect(result.changes[0]).toMatchObject({
       before: { sgdMinor: 16000, source: "day_override" },
       after: { sgdMinor: 15000, source: "market" },
     });
-    expect(await store.listDayRates("EUR")).toEqual([]);
     expect((await sgdFigures(store)).Market).toBe(15000);
     expect(
       await db.select().from(s.auditLog).where(eq(s.auditLog.action, "daily_rate.clear")),
     ).toHaveLength(1);
     // Removing a rate that is not there is harmless.
-    expect((await store.clearDailyRate({ day, currency: "EUR" })).changes).toEqual([]);
+    expect(await store.clearDailyRate({ day, currency: "EUR" })).toEqual({
+      eligible: 1,
+      wouldChange: 0,
+    });
   });
 
-  it("fetches the market rate before removing a day rate that was the only price, or refuses", async () => {
+  it("removes a day rate without the market, and fetches the market rate only to re-price", async () => {
     const seed = await seedGroup(db);
     // A day rate exists from the start, so no market rate was ever stored for the day.
-    const withRate = storeFor(db, seed, { fx: new FakeFx({}) });
-    await withRate.setDailyRate({ day, currency: "EUR", rate: rate("1.8") });
-    await withRate.createExpense(expenseInput(seed, { description: "Lunch", amount: "100.00" }));
+    const offline = storeFor(db, seed, { fx: new FakeFx({}) });
+    await offline.setDailyRate({ day, currency: "EUR", rate: rate("1.8") });
+    await offline.createExpense(expenseInput(seed, { description: "Lunch", amount: "100.00" }));
     expect(await db.select().from(s.fxRates)).toEqual([]);
-    expect((await sgdFigures(withRate)).Lunch).toBe(18000);
+    expect((await sgdFigures(offline)).Lunch).toBe(18000);
 
-    // The market is unreachable: removing the rate would leave the expense unpriced, so it is refused.
-    await expect(withRate.clearDailyRate({ day, currency: "EUR" })).rejects.toBeInstanceOf(
+    // Removing the rate needs no market rate: the expense keeps the figure it was priced with.
+    expect(await offline.clearDailyRate({ day, currency: "EUR" })).toEqual({
+      eligible: 1,
+      wouldChange: 1,
+    });
+    expect(await offline.listDayRates("EUR")).toEqual([]);
+    expect((await sgdFigures(offline)).Lunch).toBe(18000);
+
+    // Re-pricing to the market needs it: with the market unreachable nothing moves.
+    await expect(offline.repriceDay({ day, currency: "EUR" })).rejects.toBeInstanceOf(
       RateUnavailableError,
     );
-    expect(await withRate.listDayRates("EUR")).toHaveLength(1);
-    expect((await sgdFigures(withRate)).Lunch).toBe(18000);
+    expect((await sgdFigures(offline)).Lunch).toBe(18000);
+    expect(
+      await db.select().from(s.auditLog).where(eq(s.auditLog.action, "expense.reprice")),
+    ).toHaveLength(0);
 
-    // With the market reachable the rate is stored first, then the day rate goes.
     const online = storeFor(db, seed, { fx: new FakeFx(RATES) });
-    const result = await online.clearDailyRate({ day, currency: "EUR" });
+    const result = await online.repriceDay({ day, currency: "EUR" });
     expect(result.changes[0]).toMatchObject({
       before: { sgdMinor: 18000 },
       after: { sgdMinor: 15000 },
@@ -410,39 +585,39 @@ describe("daily exchange rates and re-pricing", () => {
     expect((await db.select().from(s.fxRates))[0]?.rate).toMatch(/^1\.5/);
   });
 
-  it("heals a day that has no price by fetching the market rate, and logs it", async () => {
+  it("stores a rate on a record that has none, fetching the market rate first, and logs the day", async () => {
     const seed = await seedGroup(db);
     const offline = storeFor(db, seed, { fx: new FakeFx({}) });
     await offline.setDailyRate({ day, currency: "EUR", rate: rate("1.8") });
-    const lunch = await offline.createExpense(
-      expenseInput(seed, { description: "Lunch", amount: "100.00" }),
-    );
-    // Something removed the day rate behind the app's back (for example a restore): the expense is unpriced.
+    await offline.createExpense(expenseInput(seed, { description: "Lunch", amount: "100.00" }));
+    // A record from before rates were kept on it, whose day rate has since gone: nothing prices it.
+    await db
+      .update(s.expenses)
+      .set({ pricedRate: null, pricedRateCurrency: null, pricedSource: null });
     await db.delete(s.dailyRates);
     expect((await sgdFigures(offline)).Lunch).toBeNull();
     await expect(offline.repriceDay({ day, currency: "EUR" })).rejects.toBeInstanceOf(
       RateUnavailableError,
     );
+    expect((await stored("Lunch")).pricedRate).toBeNull();
 
     const online = storeFor(db, seed, { fx: new FakeFx(RATES) });
     const result = await online.repriceDay({ day, currency: "EUR" });
     expect(result.affected).toBe(1);
-    expect(result.changes).toHaveLength(1);
-    expect(result.changes[0]).toMatchObject({
-      expenseId: lunch.id,
-      before: null,
-      after: { sgdMinor: 15000, source: "market" },
-    });
     expect((await sgdFigures(online)).Lunch).toBe(15000);
+    const lunch = await stored("Lunch");
+    expect([lunch.pricedRate, lunch.pricedRateCurrency, lunch.pricedSource]).toEqual([
+      "1.5000000000",
+      "EUR",
+      "market",
+    ]);
 
     const log = await db
       .select()
       .from(s.auditLog)
       .where(eq(s.auditLog.action, "daily_rate.reprice"));
     expect(log).toHaveLength(1);
-    expect(log[0]?.after).toMatchObject({ day, currency: "EUR", affected: 1, changed: 1 });
-    const priced = await online.expenseHistory(lunch.id);
-    expect(priced.map((h) => h.action)).toContain("expense.reprice");
+    expect(log[0]?.after).toMatchObject({ day, currency: "EUR", affected: 1 });
   });
 
   it("is a recorded no-op when nothing needs re-pricing", async () => {
@@ -476,7 +651,10 @@ describe("daily exchange rates and re-pricing", () => {
     const store = storeFor(db, seed);
     const created = await store.createExpense(expenseInput(seed, { amount: "100.00" }));
     await store.deleteExpense(created.id);
-    const result = await store.setDailyRate({ day, currency: "EUR", rate: rate("2") });
-    expect(result).toEqual({ affected: 0, changes: [] });
+    const offer = await store.setDailyRate({ day, currency: "EUR", rate: rate("2") });
+    expect(offer).toEqual({ eligible: 0, wouldChange: 0 });
+    expect(await store.repriceDay({ day, currency: "EUR" })).toEqual({ affected: 0, changes: [] });
+    await store.restoreExpense(created.id);
+    expect((await sgdFigures(store)).Trattoria).toBe(15000);
   });
 });

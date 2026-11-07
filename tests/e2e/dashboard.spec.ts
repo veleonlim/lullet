@@ -306,10 +306,29 @@ test.describe("the daily budget", () => {
 });
 
 test.describe("daily exchange rates", () => {
-  test("setting a day's rate re-prices that day and is kept in the expense history", async ({
+  test("saving a day's rate moves nothing until the day is re-priced, and re-pricing is kept in the expense history", async ({
     page,
   }) => {
     await addTripExpenses(page);
+
+    /** Every figure that depends on prices: balances, the dashboard's days and the group total. */
+    async function shown() {
+      await page.goto("/balances");
+      const balances = await page.getByTestId("balance-amount").allInnerTexts();
+      await page.goto("/dashboard");
+      const days = {
+        first: await textOf(dayRow(page, "2026-11-02").getByTestId("day-spent")),
+        second: await textOf(dayRow(page, "2026-11-03").getByTestId("day-spent")),
+        third: await textOf(dayRow(page, "2026-11-04").getByTestId("day-spent")),
+      };
+      await page.goto("/expenses");
+      return { balances, days, total: await textOf(page.getByTestId("group-total")) };
+    }
+
+    const before = await shown();
+    expect(before.days).toEqual({ first: "S$150.00", second: "S$862.74", third: "S$250.00" });
+    expect(before.total).toBe("S$1,262.74");
+
     await page.goto("/rates");
     const day = page.locator('[data-testid="rate-day"][data-day="2026-11-03"]');
     await expect(day.getByTestId("effective-rate")).toHaveText("1.5");
@@ -318,16 +337,26 @@ test.describe("daily exchange rates", () => {
     await day.locator("summary").click();
     await day.getByLabel("SGD per 1 EUR").fill("1.6");
     await day.getByRole("button", { name: "Save rate" }).click();
-    await expect(day.getByTestId("rate-result")).toContainText("Re-priced 1 expense");
-    await expect(day).toContainText("S$222.74 (Market rate S$1.5) to S$237.58 (Day rate S$1.6)");
+    await expect(day.getByTestId("rate-result")).toContainText(
+      "Rate saved. Existing expenses keep their figures.",
+    );
     await expect(day.getByTestId("effective-rate")).toHaveText("1.6");
     await expect(day).toContainText("Your rate");
 
-    // The dinner is re-priced; the hotel keeps the exact SGD figure the bank billed.
-    await page.goto("/dashboard");
-    await expect(dayRow(page, "2026-11-03").getByTestId("day-spent")).toHaveText("S$877.58");
-    await page.goto("/expenses");
-    await expect(page.getByTestId("group-total")).toHaveText("S$1,277.58");
+    // The new rate has not moved a single figure.
+    expect(await shown()).toEqual(before);
+
+    // The offer covers the dinner only: the hotel keeps the exact SGD figure the bank billed.
+    await page.goto("/rates");
+    await day.locator("summary").click();
+    await day.getByRole("button", { name: "Re-price 1 expense on this day" }).click();
+    await expect(day.getByTestId("rate-result")).toContainText("Re-priced 1 expense");
+    await expect(day).toContainText("S$222.74 (Market rate S$1.5) to S$237.58 (Day rate S$1.6)");
+
+    const repriced = await shown();
+    expect(repriced.days).toEqual({ first: "S$150.00", second: "S$877.58", third: "S$250.00" });
+    expect(repriced.total).toBe("S$1,277.58");
+    expect(repriced.balances).not.toEqual(before.balances);
 
     await page.goto("/dashboard/2026-11-03");
     await page.getByRole("link", { name: /Dinner at Trattoria Roma/ }).click();
@@ -340,16 +369,27 @@ test.describe("daily exchange rates", () => {
     await expect(reprice).toContainText("S$237.58 (Day rate S$1.6)");
     await expect(reprice.getByTestId("history-actor")).toHaveText("Alex");
 
-    // Back to the market rate, and a re-price with nothing to change says so.
+    // Removing the rate moves nothing either; re-pricing then goes back to the market rate.
     await page.goto("/rates");
     await day.locator("summary").click();
     await day.getByRole("button", { name: "Use the market rate" }).click();
-    await expect(day.getByTestId("rate-result")).toContainText("Re-priced 1 expense");
+    await expect(day.getByTestId("rate-result")).toContainText(
+      "Rate removed. Existing expenses keep their figures.",
+    );
     await expect(day.getByTestId("effective-rate")).toHaveText("1.5");
-    await day.getByRole("button", { name: "Re-price this day" }).click();
+    expect(await shown()).toEqual(repriced);
+
+    await page.goto("/rates");
+    await day.locator("summary").click();
+    await day.getByRole("button", { name: "Re-price 1 expense on this day" }).click();
+    await expect(day.getByTestId("rate-result")).toContainText("Re-priced 1 expense");
+    expect(await shown()).toEqual(before);
+
+    // Re-pricing again has nothing to change, and says so.
+    await page.goto("/rates");
+    await day.locator("summary").click();
+    await day.getByRole("button", { name: "Re-price 1 expense on this day" }).click();
     await expect(day.getByTestId("rate-result")).toContainText("No expense needed re-pricing");
-    await page.goto("/expenses");
-    await expect(page.getByTestId("group-total")).toHaveText("S$1,262.74");
     await expectNoSidewaysScroll(page);
   });
 

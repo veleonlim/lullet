@@ -321,26 +321,30 @@ const probes: Record<ScopedMethod, (world: World) => Promise<void>> = {
     expect(rows.map((row) => row.rate)).not.toContain("9.9");
   },
 
-  setDailyRate: async ({ store, a, b }) => {
-    const result = await store.setDailyRate({
+  setDailyRate: async ({ store, a }) => {
+    // Only A's one expense on the day is on offer; B's expense on the same day is not counted or moved.
+    const offer = await store.setDailyRate({
       day: "2026-11-02",
       currency: "EUR",
       rate: parseRate("1.6"),
     });
-    expect(result.changes.map((c) => c.expenseId)).toEqual([a.expense.id]);
-    expect(result.changes.map((c) => c.expenseId)).not.toContain(b.expense.id);
+    expect(offer).toEqual({ eligible: 1, wouldChange: 1 });
     expect((await store.listDayRates("EUR")).map((row) => row.rate)).toEqual(["1.6"]);
+    const history = await store.expenseHistory(a.expense.id);
+    expect(history.map((entry) => entry.action)).not.toContain("expense.reprice");
   },
 
   clearDailyRate: async ({ store }) => {
     // Only B has a day rate on that day; A clearing "its" rate removes nothing of B's.
-    const result = await store.clearDailyRate({ day: "2026-11-02", currency: "EUR" });
-    expect(result.changes).toEqual([]);
+    const offer = await store.clearDailyRate({ day: "2026-11-02", currency: "EUR" });
+    expect(offer).toEqual({ eligible: 1, wouldChange: 0 });
   },
 
   repriceDay: async ({ store, a, b }) => {
+    // B's day rate of 9.9 must not reach A's expense, and A's re-price must not reach B's.
     const result = await store.repriceDay({ day: "2026-11-02", currency: "EUR" });
     expect(result.affected).toBe(1);
+    expect(result.changes).toEqual([]);
     expect(result.changes.map((c) => c.expenseId)).not.toContain(b.expense.id);
     const history = await store.expenseHistory(a.expense.id);
     expect(history.length).toBeGreaterThan(0);

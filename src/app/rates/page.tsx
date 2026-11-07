@@ -87,8 +87,9 @@ export default async function RatesPage({
       </nav>
 
       <p className="px-1 text-sm text-muted">
-        A new rate prices that day&apos;s expenses straight away, and each change is kept in the
-        expense&apos;s history.
+        Saving a rate does not change existing expenses: they keep their figures until you re-price
+        the day, and each change is kept in the expense&apos;s history. New expenses use the rate as
+        it is when they are saved.
       </p>
 
       <ul

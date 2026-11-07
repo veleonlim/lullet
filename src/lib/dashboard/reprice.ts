@@ -1,11 +1,15 @@
 import { toLedgerExpense, type PricingSnapshot, type StoredExpense } from "@/lib/ledger";
 import {
   assertCurrencyCode,
+  bookRate,
+  createRateBook,
   formatRate,
   MoneyError,
+  parseRate,
   REPORTING_CURRENCY,
   toReportingCurrency,
   type CurrencyCode,
+  type PricedRate,
   type RateBook,
 } from "@/lib/money";
 
@@ -34,11 +38,13 @@ export function convertedCurrency(
   return assertCurrencyCode(expense.billedCurrency ?? expense.currency);
 }
 
+type RateDecided = Pick<StoredExpense, "currency" | "billedCurrency" | "rate" | "rateCurrency">;
+
 /**
- * Whether a day's rate for `currency` can matter to this expense at all. A native SGD amount,
- * an exact billed SGD figure and a rate typed on the expense itself always win over a day rate.
+ * Whether a day's rate for `currency` can matter to this expense or settlement at all. A native SGD
+ * amount, an exact billed SGD figure and a rate typed on the record itself always win over a day rate.
  */
-export function usesDayRate(expense: StoredExpense, currency: CurrencyCode): boolean {
+export function usesDayRate(expense: RateDecided, currency: CurrencyCode): boolean {
   if (expense.currency === REPORTING_CURRENCY || expense.billedCurrency === REPORTING_CURRENCY) {
     return false;
   }
@@ -59,25 +65,67 @@ function samePricing(a: Pricing | null, b: Pricing | null): boolean {
   return a.sgdMinor === b.sgdMinor && a.source === b.source && a.rate === b.rate;
 }
 
-/** The expenses whose SGD figure (or the way it was decided) differs between two sets of rates. */
-export function diffPricing(
+/** Whether a record already carries exactly this stored rate (or none, for a null target). */
+export function hasPricedRate(
+  record: Pick<StoredExpense, "pricedRate" | "pricedRateCurrency" | "pricedSource">,
+  target: PricedRate | null,
+): boolean {
+  if (target === null) return record.pricedRate === null;
+  return (
+    record.pricedRate !== null &&
+    formatRate(parseRate(record.pricedRate)) === formatRate(target.rate) &&
+    record.pricedRateCurrency === target.currency &&
+    record.pricedSource === target.source
+  );
+}
+
+/** What re-pricing one expense does: the rate it moves to and, if its figure or its basis changes, how. */
+export interface RepriceStep {
+  readonly expense: StoredExpense;
+  /** The day's rate now (the group's own, else the market's); null when neither is stored. */
+  readonly target: PricedRate | null;
+  /** Null when the expense would keep its figure, its rate and the way it was decided. */
+  readonly change: RepriceChange | null;
+}
+
+const NO_RATES: RateBook = createRateBook({});
+
+/**
+ * The expenses a day's rate decides (see `usesDayRate`) and what moving each to the book's current
+ * rate would do. Expenses it does not decide are left out, so the list is exactly what re-pricing touches.
+ */
+export function planReprice(
   expenses: readonly StoredExpense[],
-  before: RateBook,
-  after: RateBook,
-): RepriceChange[] {
-  const changes: RepriceChange[] = [];
+  currency: CurrencyCode,
+  book: RateBook,
+): RepriceStep[] {
+  const steps: RepriceStep[] = [];
   for (const expense of expenses) {
-    const was = pricingOf(expense, before);
-    const now = pricingOf(expense, after);
-    if (!samePricing(was, now)) {
-      changes.push({
-        expenseId: expense.id,
-        description: expense.description,
-        spentOn: expense.spentOn,
-        before: was,
-        after: now,
-      });
-    }
+    if (!usesDayRate(expense, currency)) continue;
+    const target = bookRate(expense.spentOn, currency, book) ?? null;
+    const before = pricingOf(expense, book);
+    const after = pricingOf(
+      {
+        ...expense,
+        pricedRate: target ? formatRate(target.rate) : null,
+        pricedRateCurrency: target?.currency ?? null,
+        pricedSource: target?.source ?? null,
+      },
+      NO_RATES,
+    );
+    steps.push({
+      expense,
+      target,
+      change: samePricing(before, after)
+        ? null
+        : {
+            expenseId: expense.id,
+            description: expense.description,
+            spentOn: expense.spentOn,
+            before,
+            after,
+          },
+    });
   }
-  return changes;
+  return steps;
 }

@@ -1,5 +1,5 @@
 {
-  "id": "0195fadc-a428-4ace-9504-3bf0c5484b17",
+  "id": "d1042433-d979-41d8-a736-0a20548d210f",
   "prevId": "90deb052-c329-4d20-a29b-7bc6d281ba06",
   "version": "7",
   "dialect": "postgresql",
@@ -1677,6 +1677,24 @@
           "primaryKey": false,
           "notNull": false
         },
+        "priced_rate": {
+          "name": "priced_rate",
+          "type": "numeric(20, 10)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "priced_rate_currency": {
+          "name": "priced_rate_currency",
+          "type": "char(3)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "priced_source": {
+          "name": "priced_source",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
         "split_method": {
           "name": "split_method",
           "type": "split_method",
@@ -1845,6 +1863,10 @@
           "name": "expenses_rate_check",
           "value": "(\"expenses\".\"rate\" IS NULL AND \"expenses\".\"rate_currency\" IS NULL)\n        OR (\"expenses\".\"rate\" IS NOT NULL AND \"expenses\".\"rate\" > 0 AND \"expenses\".\"rate_currency\" IS NOT NULL AND \"expenses\".\"rate_currency\" ~ '^[A-Z]{3}$')"
         },
+        "expenses_priced_rate_check": {
+          "name": "expenses_priced_rate_check",
+          "value": "(\"expenses\".\"priced_rate\" IS NULL AND \"expenses\".\"priced_rate_currency\" IS NULL AND \"expenses\".\"priced_source\" IS NULL)\n        OR (\"expenses\".\"priced_rate\" IS NOT NULL AND \"expenses\".\"priced_rate\" > 0 AND \"expenses\".\"priced_rate_currency\" IS NOT NULL AND \"expenses\".\"priced_rate_currency\" ~ '^[A-Z]{3}$' AND \"expenses\".\"priced_source\" IN ('day_override', 'market'))"
+        },
         "expenses_soft_delete_check": {
           "name": "expenses_soft_delete_check",
           "value": "(\"expenses\".\"deleted_at\" IS NULL) = (\"expenses\".\"deleted_by\" IS NULL)"
@@ -1914,6 +1936,24 @@
         "rate_currency": {
           "name": "rate_currency",
           "type": "char(3)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "priced_rate": {
+          "name": "priced_rate",
+          "type": "numeric(20, 10)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "priced_rate_currency": {
+          "name": "priced_rate_currency",
+          "type": "char(3)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "priced_source": {
+          "name": "priced_source",
+          "type": "text",
           "primaryKey": false,
           "notNull": false
         },
@@ -2073,6 +2113,10 @@
         "settlements_rate_check": {
           "name": "settlements_rate_check",
           "value": "(\"settlements\".\"rate\" IS NULL AND \"settlements\".\"rate_currency\" IS NULL)\n        OR (\"settlements\".\"rate\" IS NOT NULL AND \"settlements\".\"rate\" > 0 AND \"settlements\".\"rate_currency\" IS NOT NULL AND \"settlements\".\"rate_currency\" ~ '^[A-Z]{3}$')"
+        },
+        "settlements_priced_rate_check": {
+          "name": "settlements_priced_rate_check",
+          "value": "(\"settlements\".\"priced_rate\" IS NULL AND \"settlements\".\"priced_rate_currency\" IS NULL AND \"settlements\".\"priced_source\" IS NULL)\n        OR (\"settlements\".\"priced_rate\" IS NOT NULL AND \"settlements\".\"priced_rate\" > 0 AND \"settlements\".\"priced_rate_currency\" IS NOT NULL AND \"settlements\".\"priced_rate_currency\" ~ '^[A-Z]{3}$' AND \"settlements\".\"priced_source\" IN ('day_override', 'market'))"
         },
         "settlements_soft_delete_check": {
           "name": "settlements_soft_delete_check",

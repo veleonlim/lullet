@@ -32,7 +32,8 @@ function Result({ state }: { state: RateState }) {
 
 /**
  * The controls for one day and currency: set the day's default rate, drop it, or re-price the
- * day. All three report what they did, including every expense whose SGD figure moved.
+ * day's expenses to it. Saving or dropping a rate never moves an expense; re-pricing is the
+ * separate step that does, and it reports every expense whose SGD figure moved.
  */
 export function DayRateControls({
   day,
@@ -47,7 +48,7 @@ export function DayRateControls({
   override: string | null;
   /** The stored market rate, if one has been fetched. */
   market: string | null;
-  /** Expenses on the day that this rate prices. */
+  /** Expenses on the day that re-pricing would move to this day's rate. */
   affected: number;
 }) {
   const [state, action, pending] = useActionState(dayRateAction, NOTHING);
@@ -79,7 +80,7 @@ export function DayRateControls({
       <p className="text-sm text-muted">
         {affected === 0
           ? "No expense on this day is priced from this rate."
-          : `Prices ${String(affected)} ${affected === 1 ? "expense" : "expenses"} on this day. Expenses billed in SGD or with their own rate keep their figure.`}
+          : `${String(affected)} ${affected === 1 ? "expense" : "expenses"} on this day can be re-priced to this rate. Expenses billed in SGD or with their own rate keep their figure.`}
       </p>
       <div className="flex flex-wrap gap-2">
         <Button
@@ -104,16 +105,18 @@ export function DayRateControls({
             Use the market rate
           </Button>
         ) : null}
-        <Button
-          type="submit"
-          name="intent"
-          value="reprice"
-          variant="secondary"
-          disabled={pending}
-          className="min-h-10"
-        >
-          Re-price this day
-        </Button>
+        {affected > 0 ? (
+          <Button
+            type="submit"
+            name="intent"
+            value="reprice"
+            variant="secondary"
+            disabled={pending}
+            className="min-h-10"
+          >
+            Re-price {affected} {affected === 1 ? "expense" : "expenses"} on this day
+          </Button>
+        ) : null}
       </div>
       <Result state={state} />
     </form>
