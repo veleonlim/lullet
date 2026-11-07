@@ -10,6 +10,10 @@ import { SEED_MEMBERS } from "@/db/seed-ids";
 import { signInWithLink } from "./support/auth";
 import { resetLedgerData } from "./support/database";
 
+// The list adds the year to a day heading when it is not the current year; the test data is in 2026.
+const dayLabel = (base: string): string =>
+  new Date().getUTCFullYear() === 2026 ? base : `${base} 2026`;
+
 // Seeded exchange rates (src/db/seed.ts): S$1.50 per EUR and S$1.60 per CHF on every trip day.
 
 test.beforeEach(async () => {
@@ -42,7 +46,7 @@ test.describe("adding an expense", () => {
     await expect(shared).toContainText("€37.12");
 
     await page.goto("/expenses");
-    const day = page.getByRole("region", { name: "Tue 3 Nov" });
+    const day = page.getByRole("region", { name: dayLabel("Tue 3 Nov") });
     await expect(day).toContainText("Dinner at Trattoria Roma");
     await expect(day).toContainText("€148.49");
     await expect(day).toContainText("S$222.74");
@@ -57,9 +61,9 @@ test.describe("adding an expense", () => {
     await page.goto("/expenses");
     const days = page.locator("main section[aria-label]");
     await expect(days).toHaveCount(3);
-    await expect(days.nth(0)).toHaveAttribute("aria-label", "Thu 5 Nov");
-    await expect(days.nth(1)).toHaveAttribute("aria-label", "Tue 3 Nov");
-    await expect(days.nth(2)).toHaveAttribute("aria-label", "Mon 2 Nov");
+    await expect(days.nth(0)).toHaveAttribute("aria-label", dayLabel("Thu 5 Nov"));
+    await expect(days.nth(1)).toHaveAttribute("aria-label", dayLabel("Tue 3 Nov"));
+    await expect(days.nth(2)).toHaveAttribute("aria-label", dayLabel("Mon 2 Nov"));
   });
 
   test("counts a billed SGD figure exactly and uses a rate set on the expense", async ({

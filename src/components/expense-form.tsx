@@ -10,6 +10,7 @@ import {
   formatMoney,
   formatPlainAmount,
   previewShares,
+  readBasisPoints,
   readPositiveAmount,
   todayIn,
   validateExpenseForm,
@@ -593,10 +594,7 @@ function describeSplit(
   }
   const included = members.filter((member) => member.included);
   if (mode === "percent") {
-    const entered = included.reduce((sum, member) => {
-      const match = /^(\d{1,3})(?:[.,](\d{1,2}))?$/.exec(member.value.trim());
-      return match ? sum + Number(match[1]) * 100 + Number((match[2] ?? "").padEnd(2, "0")) : sum;
-    }, 0);
+    const entered = included.reduce((sum, member) => sum + (readBasisPoints(member.value) ?? 0), 0);
     return entered === 10_000
       ? { ok: "Adds up to 100%" }
       : { warn: `${formatBasisPoints(entered)}% of 100% entered` };
