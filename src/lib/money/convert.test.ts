@@ -4,6 +4,7 @@ import {
   bookRate,
   createRateBook,
   pricedRateFor,
+  ratePricedCurrency,
   rateEntryFromRow,
   toReportingCurrency,
   type ConvertibleAmount,
@@ -336,5 +337,25 @@ describe("bookRate and pricedRateFor", () => {
     expect(
       pricedRateFor({ ...base, rate: { currency: "CHF", rate: parseRate("1.7") } }, book),
     ).toMatchObject({ currency: "EUR" });
+  });
+});
+
+describe("ratePricedCurrency", () => {
+  it("names the shown currency, or the billed one when the bank billed another", () => {
+    expect(ratePricedCurrency(base)).toBe("EUR");
+    expect(ratePricedCurrency({ ...base, billed: { amountMinor: 1, currency: "CHF" } })).toBe(
+      "CHF",
+    );
+  });
+
+  it("is null when SGD, a billed SGD figure or the record's own rate prices the amount", () => {
+    expect(ratePricedCurrency({ ...base, currency: "SGD" })).toBeNull();
+    expect(ratePricedCurrency({ ...base, billed: { amountMinor: 1, currency: "SGD" } })).toBeNull();
+    expect(
+      ratePricedCurrency({ ...base, rate: { currency: "EUR", rate: parseRate("1.6") } }),
+    ).toBeNull();
+    expect(ratePricedCurrency({ ...base, rate: { currency: "CHF", rate: parseRate("1.6") } })).toBe(
+      "EUR",
+    );
   });
 });

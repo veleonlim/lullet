@@ -23,12 +23,16 @@ export default async function RatesPage({
   const store = await openStore();
   const params = await searchParams;
   const { model, data } = await loadDashboardModel(store);
+  const settlements = await store.listSettlements();
 
   const used = new Set<CurrencyCode>(ALWAYS_OFFERED);
-  for (const expense of data.expenses) {
-    const currency = convertedCurrency(expense);
+  for (const record of [...data.expenses, ...settlements]) {
+    const currency = convertedCurrency(record);
     if (currency !== REPORTING_CURRENCY) used.add(currency);
   }
+  const days = [
+    ...new Set([...model.days.map((day) => day.date), ...settlements.map((x) => x.settledOn)]),
+  ].sort();
   const currencies = [...used].sort((a, b) => {
     const rank = (code: CurrencyCode) => {
       const index = ALWAYS_OFFERED.indexOf(code);
@@ -44,21 +48,23 @@ export default async function RatesPage({
 
   const [mine, market] = await Promise.all([
     store.listDayRates(currency),
-    store.listMarketRates(currency, model.range.start, model.range.end),
+    store.listMarketRates(currency, days[0] ?? model.range.start, days.at(-1) ?? model.range.end),
   ]);
   const mineByDay = new Map(mine.map((row) => [row.day, row.rate]));
   const marketByDay = new Map(market.map((row) => [row.day, row.rate]));
   const currentYear = Number(model.today.slice(0, 4));
 
-  const rows = [...model.days].reverse().map((day) => {
-    const onDay = data.expenses.filter((expense) => expense.spentOn === day.date);
+  const rows = [...days].reverse().map((day) => {
+    const onDay = data.expenses.filter((expense) => expense.spentOn === day);
+    const settledOn = settlements.filter((settlement) => settlement.settledOn === day);
     return {
-      day: day.date,
-      timing: day.timing,
-      override: mineByDay.get(day.date) ?? null,
-      market: marketByDay.get(day.date) ?? null,
+      day,
+      override: mineByDay.get(day) ?? null,
+      market: marketByDay.get(day) ?? null,
       count: onDay.filter((expense) => convertedCurrency(expense) === currency).length,
+      settlementCount: settledOn.filter((x) => convertedCurrency(x) === currency).length,
       affected: onDay.filter((expense) => usesDayRate(expense, currency)).length,
+      settlementsAffected: settledOn.filter((x) => usesDayRate(x, currency)).length,
     };
   });
 
@@ -113,6 +119,9 @@ export default async function RatesPage({
                     {row.count === 0
                       ? `No ${currency} expenses`
                       : `${String(row.count)} ${currency} ${row.count === 1 ? "expense" : "expenses"}`}
+                    {row.settlementCount > 0
+                      ? `, ${String(row.settlementCount)} ${row.settlementCount === 1 ? "settlement" : "settlements"}`
+                      : ""}
                   </span>
                 </span>
                 <span className="shrink-0 text-right">
@@ -136,6 +145,7 @@ export default async function RatesPage({
                 override={row.override}
                 market={row.market}
                 affected={row.affected}
+                settlementsAffected={row.settlementsAffected}
               />
             </details>
           </li>

@@ -142,6 +142,57 @@ describe("settlement snapshots", () => {
   });
 });
 
+describe("the priced rate in expense snapshots", () => {
+  const priced = {
+    ...expense,
+    pricedRate: "1.5000000000",
+    pricedRateCurrency: "EUR",
+    pricedSource: "market" as const,
+  };
+
+  it("is recorded normalised and parses back", () => {
+    const snapshot = snapshotExpense(priced);
+    expect(snapshot).toMatchObject({
+      pricedRate: "1.5",
+      pricedRateCurrency: "EUR",
+      pricedSource: "market",
+    });
+    expect(expenseSnapshotSchema.parse(JSON.parse(JSON.stringify(snapshot)))).toEqual(snapshot);
+  });
+
+  it("shows a move of the priced rate as a change, and nothing when the rate is the same", () => {
+    const before = snapshotExpense(priced);
+    const moved = snapshotExpense({
+      ...priced,
+      pricedRate: "1.6000000000",
+      pricedSource: "day_override",
+    });
+    expect(describeExpenseChanges(before, moved, name)).toEqual([
+      {
+        label: "Priced at",
+        from: "S$1.5 per EUR (Market rate)",
+        to: "S$1.6 per EUR (Day rate)",
+      },
+    ]);
+    expect(
+      describeExpenseChanges(
+        before,
+        snapshotExpense({ ...priced, description: "Typo fixed" }),
+        name,
+      ),
+    ).toEqual([{ label: "Description", from: "Trattoria", to: "Typo fixed" }]);
+  });
+
+  it("still reads entries written before the priced rate was kept", () => {
+    const { pricedRate, pricedRateCurrency, pricedSource, ...old } = snapshotExpense(priced);
+    expect([pricedRate, pricedRateCurrency, pricedSource]).toEqual(["1.5", "EUR", "market"]);
+    const parsed = expenseSnapshotSchema.parse(old);
+    expect(describeExpenseChanges(null, parsed, name).map((c) => c.label)).not.toContain(
+      "Priced at",
+    );
+  });
+});
+
 describe("auditActionLabel", () => {
   it.each([
     ["expense.create", "Added"],
@@ -151,6 +202,7 @@ describe("auditActionLabel", () => {
     ["settlement.create", "Recorded a settlement"],
     ["settlement.delete", "Deleted a settlement"],
     ["settlement.restore", "Restored a settlement"],
+    ["settlement.reprice", "Re-priced a settlement"],
     ["something.else", "something.else"],
   ])("%s is %s", (action, label) => {
     expect(auditActionLabel(action)).toBe(label);

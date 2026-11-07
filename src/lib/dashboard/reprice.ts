@@ -1,4 +1,11 @@
-import { toLedgerExpense, type PricingSnapshot, type StoredExpense } from "@/lib/ledger";
+import {
+  formatMoney,
+  toLedgerExpense,
+  toLedgerSettlement,
+  type PricingSnapshot,
+  type StoredExpense,
+  type StoredSettlement,
+} from "@/lib/ledger";
 import {
   assertCurrencyCode,
   bookRate,
@@ -13,13 +20,23 @@ import {
   type RateBook,
 } from "@/lib/money";
 
-/** What one expense is worth in SGD, and how that was decided. */
+/** What one expense or settlement is worth in SGD, and how that was decided. */
 export type Pricing = PricingSnapshot;
 
-/** Prices one expense through the usual precedence; null when no exchange rate is known. */
-export function pricingOf(expense: StoredExpense, book: RateBook): Pricing | null {
+/** An expense or a settlement: the two kinds of record a day's rate can price. */
+export type Repriceable = StoredExpense | StoredSettlement;
+
+function dateOf(record: Repriceable): string {
+  return "spentOn" in record ? record.spentOn : record.settledOn;
+}
+
+/** Prices one record through the usual precedence; null when no exchange rate is known. */
+export function pricingOf(record: Repriceable, book: RateBook): Pricing | null {
   try {
-    const conversion = toReportingCurrency(toLedgerExpense(expense), book);
+    const conversion = toReportingCurrency(
+      "spentOn" in record ? toLedgerExpense(record) : toLedgerSettlement(record),
+      book,
+    );
     return {
       sgdMinor: conversion.sgdMinor,
       source: conversion.source,
@@ -53,9 +70,10 @@ export function usesDayRate(expense: RateDecided, currency: CurrencyCode): boole
 }
 
 export interface RepriceChange {
-  readonly expenseId: string;
+  readonly kind: "expense" | "settlement";
+  readonly id: string;
   readonly description: string;
-  readonly spentOn: string;
+  readonly date: string;
   readonly before: Pricing | null;
   readonly after: Pricing | null;
 }
@@ -79,34 +97,40 @@ export function hasPricedRate(
   );
 }
 
-/** What re-pricing one expense does: the rate it moves to and, if its figure or its basis changes, how. */
-export interface RepriceStep {
-  readonly expense: StoredExpense;
+/** What re-pricing one record does: the rate it moves to and, if its figure or its basis changes, how. */
+export interface RepriceStep<T extends Repriceable = Repriceable> {
+  readonly record: T;
   /** The day's rate now (the group's own, else the market's); null when neither is stored. */
   readonly target: PricedRate | null;
-  /** Null when the expense would keep its figure, its rate and the way it was decided. */
+  /** Null when the record would keep its figure, its rate and the way it was decided. */
   readonly change: RepriceChange | null;
 }
 
 const NO_RATES: RateBook = createRateBook({});
 
+function describeRecord(record: Repriceable): string {
+  return "description" in record
+    ? record.description
+    : `Settlement of ${formatMoney(record.amountMinor, assertCurrencyCode(record.currency))}`;
+}
+
 /**
- * The expenses a day's rate decides (see `usesDayRate`) and what moving each to the book's current
- * rate would do. Expenses it does not decide are left out, so the list is exactly what re-pricing touches.
+ * The records a day's rate decides (see `usesDayRate`) and what moving each to the book's current
+ * rate would do. Records it does not decide are left out, so the list is exactly what re-pricing touches.
  */
-export function planReprice(
-  expenses: readonly StoredExpense[],
+export function planReprice<T extends Repriceable>(
+  records: readonly T[],
   currency: CurrencyCode,
   book: RateBook,
-): RepriceStep[] {
-  const steps: RepriceStep[] = [];
-  for (const expense of expenses) {
-    if (!usesDayRate(expense, currency)) continue;
-    const target = bookRate(expense.spentOn, currency, book) ?? null;
-    const before = pricingOf(expense, book);
+): RepriceStep<T>[] {
+  const steps: RepriceStep<T>[] = [];
+  for (const record of records) {
+    if (!usesDayRate(record, currency)) continue;
+    const target = bookRate(dateOf(record), currency, book) ?? null;
+    const before = pricingOf(record, book);
     const after = pricingOf(
       {
-        ...expense,
+        ...record,
         pricedRate: target ? formatRate(target.rate) : null,
         pricedRateCurrency: target?.currency ?? null,
         pricedSource: target?.source ?? null,
@@ -114,18 +138,29 @@ export function planReprice(
       NO_RATES,
     );
     steps.push({
-      expense,
+      record,
       target,
       change: samePricing(before, after)
         ? null
         : {
-            expenseId: expense.id,
-            description: expense.description,
-            spentOn: expense.spentOn,
+            kind: "description" in record ? "expense" : "settlement",
+            id: record.id,
+            description: describeRecord(record),
+            date: dateOf(record),
             before,
             after,
           },
     });
   }
   return steps;
+}
+
+/** "1 expense", "2 settlements" or "1 expense and 1 settlement"; empty when both are zero. */
+export function describeCount(expenses: number, settlements: number): string {
+  const parts: string[] = [];
+  if (expenses > 0) parts.push(`${String(expenses)} ${expenses === 1 ? "expense" : "expenses"}`);
+  if (settlements > 0) {
+    parts.push(`${String(settlements)} ${settlements === 1 ? "settlement" : "settlements"}`);
+  }
+  return parts.join(" and ");
 }

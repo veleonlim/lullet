@@ -1,7 +1,7 @@
 import { type Locator, type Page } from "@playwright/test";
 import { todayIn } from "@/lib/ledger";
 import { expect, ledgerTest as test } from "./fixtures";
-import { addExpense, expectNoSidewaysScroll } from "./support/ledger-page";
+import { addExpense, expectNoSidewaysScroll, readBalances } from "./support/ledger-page";
 import { resetLedgerData } from "./support/database";
 
 // Seeded exchange rates (src/db/seed.ts): S$1.50 per EUR and S$1.60 per CHF on every trip day.
@@ -389,8 +389,56 @@ test.describe("daily exchange rates", () => {
     await page.goto("/rates");
     await day.locator("summary").click();
     await day.getByRole("button", { name: "Re-price 1 expense on this day" }).click();
-    await expect(day.getByTestId("rate-result")).toContainText("No expense needed re-pricing");
+    await expect(day.getByTestId("rate-result")).toContainText("Nothing needed re-pricing");
     await expectNoSidewaysScroll(page);
+  });
+
+  test("a day with only a settlement offers a re-price that moves just that settlement", async ({
+    page,
+  }) => {
+    await page.goto("/settlements/new");
+    await page.getByLabel("Paid by").selectOption({ label: "Mum" });
+    await page.getByLabel("Paid to").selectOption({ label: "Alex" });
+    await page.getByLabel("Amount", { exact: true }).fill("20.00");
+    await page.getByLabel("Currency", { exact: true }).selectOption("EUR");
+    await page.getByLabel("Date").fill("2026-11-05");
+    await page.getByRole("button", { name: "Record settlement" }).click();
+    await expect(page.getByTestId("settlement-row")).toContainText("S$30.00");
+    const before = await readBalances(page);
+
+    await page.goto("/rates");
+    const day = page.locator('[data-testid="rate-day"][data-day="2026-11-05"]');
+    await day.locator("summary").click();
+    await day.getByLabel("SGD per 1 EUR").fill("1.6");
+    await day.getByRole("button", { name: "Save rate" }).click();
+    await expect(day.getByTestId("rate-result")).toContainText(
+      "Rate saved. Existing expenses keep their figures.",
+    );
+    await expect(day.getByTestId("rate-result")).toContainText(
+      "Re-pricing would change 1 of the 1 settlement on this day.",
+    );
+
+    // Saving the rate moved nothing.
+    await page.goto("/balances");
+    await expect(page.getByTestId("settlement-row")).toContainText("S$30.00");
+    expect(await readBalances(page)).toEqual(before);
+
+    await page.goto("/rates");
+    await day.locator("summary").click();
+    await day.getByRole("button", { name: "Re-price 1 settlement on this day" }).click();
+    await expect(day.getByTestId("rate-result")).toContainText("Re-priced 1 settlement");
+    await expect(day).toContainText(
+      "Settlement of \u20ac20.00: S$30.00 (Market rate S$1.5) to S$32.00 (Day rate S$1.6)",
+    );
+
+    await page.goto("/balances");
+    await expect(page.getByTestId("settlement-row")).toContainText("S$32.00");
+    expect(await readBalances(page)).not.toEqual(before);
+
+    await page.goto("/rates");
+    await day.locator("summary").click();
+    await day.getByRole("button", { name: "Re-price 1 settlement on this day" }).click();
+    await expect(day.getByTestId("rate-result")).toContainText("Nothing needed re-pricing");
   });
 
   test("rejects a rate that is not a number and keeps the old figures", async ({ page }) => {

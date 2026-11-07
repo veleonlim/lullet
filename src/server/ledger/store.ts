@@ -15,6 +15,7 @@ import {
 import { FxRateError, type FxRateClient } from "@/lib/fx";
 import {
   marketRateNeeded,
+  retainedPricedRate,
   snapshotExpense,
   snapshotSettlement,
   type AuditAction,
@@ -26,7 +27,6 @@ import {
   type StoredSettlement,
 } from "@/lib/ledger";
 import {
-  bookRate,
   createRateBook,
   formatRate,
   pricedRateFor,
@@ -106,15 +106,19 @@ export interface DayRateRow {
 /** What re-pricing a day would do, offered after its day rate changes. Nothing has moved yet. */
 export interface RepriceOffer {
   /** Expenses on the day that the day's rate decides: the ones re-pricing moves. */
-  readonly eligible: number;
-  /** Of those, how many would get a different SGD figure. */
+  readonly expenses: number;
+  /** Settlements dated that day that the day's rate decides. */
+  readonly settlements: number;
+  /** Of expenses and settlements together, how many would get a different SGD figure. */
   readonly wouldChange: number;
 }
 
 export interface RepriceResult {
   /** Expenses on the day that the day's rate decides. */
-  readonly affected: number;
-  /** The expenses whose SGD figure actually changed. */
+  readonly expenses: number;
+  /** Settlements dated that day that the day's rate decides. */
+  readonly settlements: number;
+  /** The expenses and settlements whose SGD figure actually changed. */
   readonly changes: readonly RepriceChange[];
 }
 
@@ -680,14 +684,14 @@ export function createLedgerKit(options: StoreOptions): LedgerKit {
   async function auditReprice(tx: Tx, changes: readonly RepriceChange[]): Promise<void> {
     for (const change of changes) {
       await audit(tx, {
-        action: "expense.reprice",
-        entityType: "expense",
-        entityId: change.expenseId,
+        action: change.kind === "expense" ? "expense.reprice" : "settlement.reprice",
+        entityType: change.kind,
+        entityId: change.id,
         before: { pricing: change.before },
         after: {
           pricing: change.after,
           description: change.description,
-          spentOn: change.spentOn,
+          ...(change.kind === "expense" ? { spentOn: change.date } : { settledOn: change.date }),
         },
       });
     }
@@ -715,10 +719,18 @@ export function createLedgerKit(options: StoreOptions): LedgerKit {
     day: IsoDate,
     currency: CurrencyCode,
   ): Promise<RepriceOffer> {
-    const expenses = await readExpenses(executor, activeOnDay(day));
+    const [expenses, settlements] = await Promise.all([
+      readExpenses(executor, activeOnDay(day)),
+      readSettlements(executor, activeSettlementsOnDay(day)),
+    ]);
     const book = await loadRateBook([{ date: day, currencies: [currency] }], executor);
-    const steps = planReprice(expenses, currency, book);
-    return { eligible: steps.length, wouldChange: steps.filter((step) => step.change).length };
+    const expenseSteps = planReprice(expenses, currency, book);
+    const settlementSteps = planReprice(settlements, currency, book);
+    return {
+      expenses: expenseSteps.length,
+      settlements: settlementSteps.length,
+      wouldChange: [...expenseSteps, ...settlementSteps].filter((step) => step.change).length,
+    };
   }
 
   /** Changes (or removes) a day's default rate. Existing figures stay as they are until the day is re-priced. */
@@ -856,11 +868,13 @@ export function createLedgerKit(options: StoreOptions): LedgerKit {
         const before = await readExpense(tx, id);
         if (!before) throw new NotFoundError("Expense");
 
+        const amount = toConvertible(input.spentOn, input);
+        const kept = retainedPricedRate(before, amount);
         await tx
           .update(s.expenses)
           .set({
             ...expenseColumns(input),
-            ...(await pricedColumns(tx, toConvertible(input.spentOn, input))),
+            ...(kept ? pricedColumnsOf(kept) : await pricedColumns(tx, amount)),
             updatedAt: now(),
           })
           .where(and(eq(s.expenses.groupId, groupId), eq(s.expenses.id, id)));
@@ -1119,27 +1133,26 @@ export function createLedgerKit(options: StoreOptions): LedgerKit {
         const settlements = await readSettlements(tx, activeSettlementsOnDay(input.day));
         const book = await loadRateBook([{ date: input.day, currencies: [input.currency] }], tx);
 
-        const steps = planReprice(expenses, input.currency, book);
-        for (const { expense, target } of steps) {
-          if (target === null || hasPricedRate(expense, target)) continue;
+        const expenseSteps = planReprice(expenses, input.currency, book);
+        for (const { record, target } of expenseSteps) {
+          if (target === null || hasPricedRate(record, target)) continue;
           await tx
             .update(s.expenses)
             .set(pricedColumnsOf(target))
-            .where(and(eq(s.expenses.groupId, groupId), eq(s.expenses.id, expense.id)));
+            .where(and(eq(s.expenses.groupId, groupId), eq(s.expenses.id, record.id)));
         }
-        let settlementsMoved = 0;
-        for (const settlement of settlements) {
-          if (!usesDayRate(settlement, input.currency)) continue;
-          const target = bookRate(settlement.settledOn, input.currency, book) ?? null;
-          if (target === null || hasPricedRate(settlement, target)) continue;
+        const settlementSteps = planReprice(settlements, input.currency, book);
+        for (const { record, target } of settlementSteps) {
+          if (target === null || hasPricedRate(record, target)) continue;
           await tx
             .update(s.settlements)
             .set(pricedColumnsOf(target))
-            .where(and(eq(s.settlements.groupId, groupId), eq(s.settlements.id, settlement.id)));
-          settlementsMoved += 1;
+            .where(and(eq(s.settlements.groupId, groupId), eq(s.settlements.id, record.id)));
         }
 
-        const changes = steps.flatMap((step) => (step.change ? [step.change] : []));
+        const changes = [...expenseSteps, ...settlementSteps].flatMap((step) =>
+          step.change ? [step.change] : [],
+        );
         await audit(tx, {
           action: "daily_rate.reprice",
           entityType: "daily_rate",
@@ -1148,13 +1161,13 @@ export function createLedgerKit(options: StoreOptions): LedgerKit {
           after: {
             day: input.day,
             currency: input.currency,
-            affected: steps.length,
+            expenses: expenseSteps.length,
+            settlements: settlementSteps.length,
             changed: changes.length,
-            settlements: settlementsMoved,
           },
         });
         await auditReprice(tx, changes);
-        return { affected: steps.length, changes };
+        return { expenses: expenseSteps.length, settlements: settlementSteps.length, changes };
       });
     },
 

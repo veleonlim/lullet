@@ -1,6 +1,7 @@
 "use client";
 
 import { useActionState } from "react";
+import { describeCount } from "@/lib/dashboard";
 import { dayRateAction, type RateState } from "@/app/rates/actions";
 import { AmountInput, Field } from "./form-controls";
 import { Button, Notice } from "./ui";
@@ -41,6 +42,7 @@ export function DayRateControls({
   override,
   market,
   affected,
+  settlementsAffected,
 }: {
   day: string;
   currency: string;
@@ -50,9 +52,12 @@ export function DayRateControls({
   market: string | null;
   /** Expenses on the day that re-pricing would move to this day's rate. */
   affected: number;
+  /** Settlements dated that day that re-pricing would move the same way. */
+  settlementsAffected: number;
 }) {
   const [state, action, pending] = useActionState(dayRateAction, NOTHING);
   const id = `rate-${day}-${currency}`;
+  const eligible = describeCount(affected, settlementsAffected);
 
   return (
     <form action={action} noValidate className="space-y-3 border-t border-border px-4 py-4">
@@ -78,9 +83,9 @@ export function DayRateControls({
         />
       </Field>
       <p className="text-sm text-muted">
-        {affected === 0
-          ? "No expense on this day is priced from this rate."
-          : `${String(affected)} ${affected === 1 ? "expense" : "expenses"} on this day can be re-priced to this rate. Expenses billed in SGD or with their own rate keep their figure.`}
+        {eligible === ""
+          ? "No expense or settlement on this day is priced from this rate."
+          : `${eligible} on this day can be re-priced to this rate. Expenses billed in SGD or with their own rate keep their figure.`}
       </p>
       <div className="flex flex-wrap gap-2">
         <Button
@@ -105,7 +110,7 @@ export function DayRateControls({
             Use the market rate
           </Button>
         ) : null}
-        {affected > 0 ? (
+        {eligible !== "" ? (
           <Button
             type="submit"
             name="intent"
@@ -114,7 +119,7 @@ export function DayRateControls({
             disabled={pending}
             className="min-h-10"
           >
-            Re-price {affected} {affected === 1 ? "expense" : "expenses"} on this day
+            Re-price {eligible} on this day
           </Button>
         ) : null}
       </div>

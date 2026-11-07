@@ -20,6 +20,7 @@ export const AUDIT_ACTIONS = [
   "import.cancel",
   "import.image_deleted",
   "expense.reprice",
+  "settlement.reprice",
   "daily_rate.set",
   "daily_rate.clear",
   "daily_rate.reprice",
@@ -46,6 +47,9 @@ export const expenseSnapshotSchema = z.object({
   billedCurrency: z.string().nullable(),
   rate: z.string().nullable(),
   rateCurrency: z.string().nullable(),
+  pricedRate: z.string().nullable().optional(),
+  pricedRateCurrency: z.string().nullable().optional(),
+  pricedSource: z.enum(["day_override", "market"]).nullable().optional(),
   splitMethod: z.enum(SPLIT_MODES),
   payers: z.array(personAmount),
   shares: z.array(personAmount),
@@ -79,6 +83,7 @@ export type PricingSnapshot = z.infer<typeof pricingSnapshotSchema>;
 export const repriceSnapshotSchema = z.object({
   description: z.string().optional(),
   spentOn: z.string().optional(),
+  settledOn: z.string().optional(),
   pricing: pricingSnapshotSchema.nullable(),
 });
 
@@ -109,6 +114,9 @@ export function snapshotExpense(expense: StoredExpense): ExpenseSnapshot {
     billedCurrency: expense.billedCurrency,
     rate: expense.rate === null ? null : formatRate(parseRate(expense.rate)),
     rateCurrency: expense.rateCurrency,
+    pricedRate: expense.pricedRate === null ? null : formatRate(parseRate(expense.pricedRate)),
+    pricedRateCurrency: expense.pricedRateCurrency,
+    pricedSource: expense.pricedSource,
     splitMethod: expense.splitMethod,
     payers: expense.payers.map((p) => ({ userId: p.userId, amountMinor: p.amountMinor })),
     shares: expense.shares.map((s) => ({
@@ -186,6 +194,12 @@ function expenseFacts(
         ? `S$${snapshot.rate} per ${snapshot.rateCurrency}`
         : null,
     ],
+    [
+      "Priced at",
+      snapshot.pricedRate != null && snapshot.pricedRateCurrency != null && snapshot.pricedSource
+        ? `S$${snapshot.pricedRate} per ${snapshot.pricedRateCurrency} (${PRICING_SOURCE_LABELS[snapshot.pricedSource]})`
+        : null,
+    ],
     ["Paid by", people(byUserId(snapshot.payers), snapshot.currency, nameOf)],
     ["Split", SPLIT_LABELS[snapshot.splitMethod]],
     ["Shared between", people(byUserId(snapshot.shares), snapshot.currency, nameOf)],
@@ -237,6 +251,8 @@ export function auditActionLabel(action: string): string {
       return "Deleted the original screenshot";
     case "expense.reprice":
       return "Re-priced";
+    case "settlement.reprice":
+      return "Re-priced a settlement";
     case "daily_rate.set":
       return "Set a day rate";
     case "daily_rate.clear":

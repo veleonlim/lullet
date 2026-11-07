@@ -185,16 +185,27 @@ export function bookRate(
 }
 
 /**
- * The rate to store on a record so its figure stays put: the book's rate for the currency that
- * gets converted, or null when the amount is priced without one (native SGD, billed in SGD, or a
- * rate set on the record itself), or when the book has no rate yet. Any `priced` rate on the amount is not consulted.
+ * The currency whose rate prices this amount, or null when it is priced without one: native SGD,
+ * billed in SGD, or a rate set on the record itself.
  */
-export function pricedRateFor(amount: ConvertibleAmount, book: RateBook): PricedRate | null {
+export function ratePricedCurrency(
+  amount: Pick<ConvertibleAmount, "currency" | "billed" | "rate">,
+): CurrencyCode | null {
   if (amount.currency === REPORTING_CURRENCY || amount.billed?.currency === REPORTING_CURRENCY) {
     return null;
   }
   const currency = amount.billed?.currency ?? amount.currency;
-  if (amount.rate?.currency === currency) return null;
+  return amount.rate?.currency === currency ? null : currency;
+}
+
+/**
+ * The rate to store on a record so its figure stays put: the book's rate for the currency that
+ * gets converted (see `ratePricedCurrency`), or null when no rate prices the amount or the book has
+ * none yet. Any `priced` rate on the amount is not consulted.
+ */
+export function pricedRateFor(amount: ConvertibleAmount, book: RateBook): PricedRate | null {
+  const currency = ratePricedCurrency(amount);
+  if (currency === null) return null;
   assertIsoDate(amount.date);
   return bookRate(amount.date, currency, book) ?? null;
 }

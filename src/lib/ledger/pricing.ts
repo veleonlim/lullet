@@ -4,6 +4,7 @@ import {
   expenseInReportingCurrency,
   MoneyError,
   parseRate,
+  ratePricedCurrency,
   suggestTransfers,
   toReportingCurrency,
   type Balances,
@@ -13,6 +14,7 @@ import {
   type ExpenseInReportingCurrency,
   type LedgerExpense,
   type LedgerSettlement,
+  type PricedRate,
   type RateBook,
   type Transfer,
 } from "@/lib/money";
@@ -71,6 +73,21 @@ export function toLedgerSettlement(settlement: StoredSettlement): LedgerSettleme
     fromMemberId: settlement.fromUserId,
     toMemberId: settlement.toUserId,
   };
+}
+
+/**
+ * The stored rate an edited expense keeps. Only a change to what the price depends on (the day, the
+ * currency being converted, or whether a rate prices it at all) takes a fresh rate; any other edit
+ * leaves the figure where it was until the day is re-priced. Null means: take a fresh rate.
+ */
+export function retainedPricedRate(
+  before: StoredExpense,
+  next: ConvertibleAmount,
+): PricedRate | null {
+  const currency = ratePricedCurrency(next);
+  const priced = convertible(before).priced;
+  if (currency === null || priced === undefined) return null;
+  return before.spentOn === next.date && priced.currency === currency ? priced : null;
 }
 
 /**

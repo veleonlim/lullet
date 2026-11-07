@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { validateDayCurrency, validateRateForm } from "@/lib/dashboard";
+import { describeCount, validateDayCurrency, validateRateForm } from "@/lib/dashboard";
 import { describePricing, formatDay, type FieldErrors } from "@/lib/ledger";
 import {
   LedgerError,
@@ -15,16 +15,17 @@ export interface RateState {
   readonly errors: FieldErrors;
   /** What happened, in a sentence or two. */
   readonly message?: string;
-  /** One line per expense whose SGD figure changed. */
+  /** One line per expense or settlement whose SGD figure changed. */
   readonly changes?: readonly string[];
 }
 
 function summarise(result: RepriceResult, lead: string): RateState {
-  const count = result.changes.length;
+  const expenses = result.changes.filter((change) => change.kind === "expense").length;
+  const settlements = result.changes.length - expenses;
   const sentence =
-    count === 0
-      ? `${lead} No expense needed re-pricing.`
-      : `${lead} Re-priced ${String(count)} ${count === 1 ? "expense" : "expenses"}.`;
+    result.changes.length === 0
+      ? `${lead} Nothing needed re-pricing.`
+      : `${lead} Re-priced ${describeCount(expenses, settlements)}.`;
   return {
     errors: {},
     message: sentence,
@@ -36,13 +37,13 @@ function summarise(result: RepriceResult, lead: string): RateState {
 }
 
 function kept(offer: RepriceOffer, lead: string): RateState {
-  const count = (n: number) => `${String(n)} ${n === 1 ? "expense" : "expenses"}`;
+  const eligible = describeCount(offer.expenses, offer.settlements);
   const outlook =
-    offer.eligible === 0
+    eligible === ""
       ? ""
       : offer.wouldChange === 0
-        ? ` Re-pricing the ${count(offer.eligible)} on this day would not change a figure.`
-        : ` Re-pricing would change ${String(offer.wouldChange)} of the ${count(offer.eligible)} on this day.`;
+        ? ` Re-pricing the ${eligible} on this day would not change a figure.`
+        : ` Re-pricing would change ${String(offer.wouldChange)} of the ${eligible} on this day.`;
   return { errors: {}, message: `${lead} Existing expenses keep their figures.${outlook}` };
 }
 
@@ -79,14 +80,14 @@ async function clearDayRate(_previous: RateState, formData: FormData): Promise<R
   return guarded(async () => kept(await store.clearDailyRate(checked.value), "Rate removed."));
 }
 
-/** Moves the day's eligible expenses to the day's current rate, fetching a missing market rate first. */
+/** Moves the day's eligible expenses and settlements to the day's current rate, fetching a missing market rate first. */
 async function repriceDay(_previous: RateState, formData: FormData): Promise<RateState> {
   const checked = validateDayCurrency(formData);
   if (!checked.ok) return { errors: checked.errors };
   const store = await openStore();
   return guarded(async () => {
     const result = await store.repriceDay(checked.value);
-    const checkedCount = `Checked ${String(result.affected)} ${result.affected === 1 ? "expense" : "expenses"} on ${formatDay(checked.value.day)}.`;
+    const checkedCount = `Checked ${describeCount(result.expenses, result.settlements) || "nothing"} on ${formatDay(checked.value.day)}.`;
     return summarise(result, checkedCount);
   });
 }

@@ -1,7 +1,14 @@
 import { describe, expect, it } from "vitest";
-import type { StoredExpense } from "@/lib/ledger";
+import type { StoredExpense, StoredSettlement } from "@/lib/ledger";
 import { createRateBook, parseRate } from "@/lib/money";
-import { convertedCurrency, hasPricedRate, planReprice, pricingOf, usesDayRate } from "./reprice";
+import {
+  convertedCurrency,
+  describeCount,
+  hasPricedRate,
+  planReprice,
+  pricingOf,
+  usesDayRate,
+} from "./reprice";
 
 function expense(overrides: Partial<StoredExpense> = {}): StoredExpense {
   return {
@@ -24,6 +31,30 @@ function expense(overrides: Partial<StoredExpense> = {}): StoredExpense {
     createdBy: "a",
     createdAt: new Date(0),
     updatedAt: new Date(0),
+    deletedAt: null,
+    deletedBy: null,
+    ...overrides,
+  };
+}
+
+function settlement(overrides: Partial<StoredSettlement> = {}): StoredSettlement {
+  return {
+    id: "s1",
+    fromUserId: "b",
+    toUserId: "a",
+    amountMinor: 1000,
+    currency: "EUR",
+    billedAmountMinor: null,
+    billedCurrency: null,
+    rate: null,
+    rateCurrency: null,
+    pricedRate: "1.5",
+    pricedRateCurrency: "EUR",
+    pricedSource: "market",
+    settledOn: "2026-11-02",
+    note: null,
+    createdBy: "b",
+    createdAt: new Date(0),
     deletedAt: null,
     deletedBy: null,
     ...overrides,
@@ -87,10 +118,11 @@ describe("planReprice", () => {
     const native = expense({ id: "native", currency: "SGD" });
     const chf = expense({ id: "chf", currency: "CHF" });
     const steps = planReprice([moved, own, billed, native, chf], "EUR", withDayRate);
-    expect(steps.map((step) => step.expense.id)).toEqual(["moved"]);
+    expect(steps.map((step) => step.record.id)).toEqual(["moved"]);
     expect(steps[0]?.target).toMatchObject({ currency: "EUR", source: "day_override" });
     expect(steps[0]?.change).toMatchObject({
-      expenseId: "moved",
+      kind: "expense",
+      id: "moved",
       before: { sgdMinor: 15000, source: "market" },
       after: { sgdMinor: 16000, source: "day_override" },
     });
@@ -159,5 +191,46 @@ describe("hasPricedRate", () => {
     expect(
       hasPricedRate({ pricedRate: null, pricedRateCurrency: null, pricedSource: null }, null),
     ).toBe(true);
+  });
+});
+
+describe("planReprice for settlements", () => {
+  it("plans a rate-priced settlement and leaves SGD, billed and own-rate ones alone", () => {
+    const steps = planReprice(
+      [
+        settlement({ id: "foreign" }),
+        settlement({
+          id: "sgd",
+          currency: "SGD",
+          pricedRate: null,
+          pricedRateCurrency: null,
+          pricedSource: null,
+        }),
+        settlement({ id: "own", rate: "1.7", rateCurrency: "EUR" }),
+      ],
+      "EUR",
+      withDayRate,
+    );
+    expect(steps.map((step) => step.record.id)).toEqual(["foreign"]);
+    expect(steps[0]?.change).toMatchObject({
+      kind: "settlement",
+      id: "foreign",
+      description: "Settlement of \u20ac10.00",
+      date: "2026-11-02",
+      before: { sgdMinor: 1500, source: "market" },
+      after: { sgdMinor: 1600, source: "day_override" },
+    });
+  });
+});
+
+describe("describeCount", () => {
+  it.each([
+    [0, 0, ""],
+    [1, 0, "1 expense"],
+    [2, 0, "2 expenses"],
+    [0, 1, "1 settlement"],
+    [1, 2, "1 expense and 2 settlements"],
+  ])("%i expenses and %i settlements read %j", (expenses, settlements, text) => {
+    expect(describeCount(expenses, settlements)).toBe(text);
   });
 });
