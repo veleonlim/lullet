@@ -36,6 +36,7 @@ interface World {
     readonly seed: Seed;
     readonly userIds: readonly string[];
     readonly groupId: string;
+    readonly importId: string;
     readonly expense: StoredExpense;
     readonly deletedExpense: StoredExpense;
     readonly settlement: StoredSettlement;
@@ -56,6 +57,21 @@ async function buildWorld(): Promise<World> {
   const bExpense = await storeB.createExpense(expenseInput(b, { description: "B active" }));
   const bDeleted = await storeB.createExpense(expenseInput(b, { description: "B deleted" }));
   const bDeletedExpense = await storeB.deleteExpense(bDeleted.id);
+  const [bImport] = await db
+    .insert(s.imports)
+    .values({
+      groupId: b.groupId,
+      uploaderId: b.userIds[0] ?? "",
+      source: "web",
+      imageSha256: "a".repeat(64),
+      status: "draft",
+      expiresAt: new Date(Date.now() + 3_600_000),
+    })
+    .returning({ id: s.imports.id });
+  await db
+    .update(s.expenses)
+    .set({ importId: bImport?.id ?? "" })
+    .where(eq(s.expenses.id, bExpense.id));
   const bSettlement = await storeB.createSettlement(settlementInput(b));
   const bDeletedSettlement = await storeB.deleteSettlement(
     (await storeB.createSettlement(settlementInput(b, { amount: "7.00" }))).id,
@@ -74,6 +90,7 @@ async function buildWorld(): Promise<World> {
       seed: b,
       userIds: b.userIds,
       groupId: b.groupId,
+      importId: bImport?.id ?? "",
       expense: bExpense,
       deletedExpense: bDeletedExpense,
       settlement: bSettlement,
@@ -149,6 +166,12 @@ const probes: Record<ScopedMethod, (world: World) => Promise<void>> = {
     expect(await store.getExpense(b.expense.id)).toBeNull();
     expect(await store.getExpense(b.deletedExpense.id)).toBeNull();
     expect((await store.getExpense(a.expense.id))?.id).toBe(a.expense.id);
+  },
+
+  listImportExpenses: async ({ store, b }) => {
+    // Group B's expense came from one of group B's screenshot imports; A cannot list it.
+    expect(await store.listImportExpenses(b.importId)).toEqual([]);
+    expect(await store.listImportExpenses("not-a-uuid")).toEqual([]);
   },
 
   createExpense: async ({ store, a, b }) => {

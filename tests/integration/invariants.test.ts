@@ -656,6 +656,15 @@ describe("imports", () => {
     uploaderId: who(A),
     source: "telegram" as const,
     imageSha256: hash,
+    // An open draft always has a time at which it is discarded.
+    expiresAt: new Date(Date.now() + 86_400_000),
+  });
+
+  it("requires an open draft to have an expiry time", async () => {
+    await expectPgError(db.insert(s.imports).values({ ...draft(), expiresAt: null }), {
+      code: PG.checkViolation,
+      constraint: "imports_draft_expiry_check",
+    });
   });
 
   it("rejects the same image twice while it is a draft or confirmed", async () => {

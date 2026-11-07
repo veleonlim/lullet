@@ -21,3 +21,6 @@ next-env.d.ts
 .DS_Store
 *.tsbuildinfo
 *.log
+
+# local screenshot storage (dev and tests)
+/.data/

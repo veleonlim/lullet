@@ -7,7 +7,7 @@ import { createLedgerStore, type LedgerStore } from "./ledger";
 
 const globalForFx = globalThis as unknown as { __lulletFx?: FxRateClient };
 
-function fxClient(): FxRateClient {
+export function fxClient(): FxRateClient {
   globalForFx.__lulletFx ??= new FrankfurterClient();
   return globalForFx.__lulletFx;
 }

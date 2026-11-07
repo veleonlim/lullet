@@ -78,6 +78,8 @@ export interface LedgerStore {
   listExpenses(options?: { deleted?: boolean }): Promise<StoredExpense[]>;
   /** One expense including a deleted one; null when it is not in the caller's group. */
   getExpense(id: string): Promise<StoredExpense | null>;
+  /** The expenses a screenshot import created, deleted ones included. */
+  listImportExpenses(importId: string): Promise<StoredExpense[]>;
   createExpense(input: ExpenseInput): Promise<StoredExpense>;
   /** `expectedUpdatedAt` guards against overwriting someone else's edit. */
   updateExpense(id: string, input: ExpenseInput, expectedUpdatedAt: Date): Promise<StoredExpense>;
@@ -106,7 +108,42 @@ function assertId(id: string, what: string): void {
   if (!UUID.test(id)) throw new NotFoundError(what);
 }
 
+/**
+ * What the screenshot import needs from the ledger to add and reverse a whole batch of expenses
+ * in one transaction. It is built from the same session and group scoping as the store, so
+ * nothing here can reach another group's records.
+ */
+export interface LedgerKit {
+  readonly store: LedgerStore;
+  readonly session: Session;
+  readonly now: () => Date;
+  /** Checks the people named and makes sure the day's market rate is stored. A missing rate is not an error here. */
+  prepareExpense(input: ExpenseInput): Promise<{ priced: boolean }>;
+  insertExpense(
+    tx: Tx,
+    input: ExpenseInput,
+    link: { importId: string; importRowId: string },
+  ): Promise<StoredExpense>;
+  deleteExpenseIn(tx: Tx, id: string): Promise<StoredExpense>;
+  audit(
+    tx: Tx,
+    entry: {
+      action: AuditAction;
+      entityType: "expense" | "settlement" | "import";
+      entityId: string;
+      before: unknown;
+      after: unknown;
+    },
+  ): Promise<void>;
+}
+
+export type { Tx };
+
 export function createLedgerStore(options: StoreOptions): LedgerStore {
+  return createLedgerKit(options).store;
+}
+
+export function createLedgerKit(options: StoreOptions): LedgerKit {
   const { db, session, fx } = options;
   const now = options.now ?? (() => new Date());
   const groupId = session.groupId;
@@ -168,6 +205,7 @@ export function createLedgerStore(options: StoreOptions): LedgerStore {
 
     return rows.map((row) => ({
       id: row.id,
+      importId: row.importId,
       description: row.description,
       category: row.category,
       spentOn: row.spentOn,
@@ -331,7 +369,7 @@ export function createLedgerStore(options: StoreOptions): LedgerStore {
     tx: Tx,
     entry: {
       action: AuditAction;
-      entityType: "expense" | "settlement";
+      entityType: "expense" | "settlement" | "import";
       entityId: string;
       before: unknown;
       after: unknown;
@@ -404,40 +442,75 @@ export function createLedgerStore(options: StoreOptions): LedgerStore {
     });
   }
 
+  /** Inserts an expense with its payers and shares and an audit row; the caller supplies the transaction. */
+  async function insertExpense(
+    tx: Tx,
+    input: ExpenseInput,
+    link?: { importId: string; importRowId: string },
+  ): Promise<StoredExpense> {
+    const at = now();
+    const [row] = await tx
+      .insert(s.expenses)
+      .values({
+        ...expenseColumns(input),
+        ...(link ? { importId: link.importId, importRowId: link.importRowId } : {}),
+        groupId,
+        createdBy: session.userId,
+        createdAt: at,
+        updatedAt: at,
+      })
+      .returning({ id: s.expenses.id });
+    if (!row) throw new Error("expense insert returned nothing");
+    await writePayersAndShares(tx, row.id, input);
+    const created = await readExpense(tx, row.id);
+    if (!created) throw new Error("expense vanished after insert");
+    await audit(tx, {
+      action: "expense.create",
+      entityType: "expense",
+      entityId: row.id,
+      before: null,
+      after: snapshotExpense(created),
+    });
+    return created;
+  }
+
+  /** Soft deletes or restores an expense inside the caller's transaction. */
+  async function setExpenseDeletedIn(tx: Tx, id: string, deleted: boolean): Promise<StoredExpense> {
+    const [row] = await tx
+      .select({ deletedAt: s.expenses.deletedAt })
+      .from(s.expenses)
+      .where(and(eq(s.expenses.groupId, groupId), eq(s.expenses.id, id)))
+      .for("update");
+    if (!row) throw new NotFoundError("Expense");
+    const current = await readExpense(tx, id);
+    if (!current) throw new NotFoundError("Expense");
+    if ((row.deletedAt !== null) === deleted) return current; // already in that state
+    const at = now();
+    await tx
+      .update(s.expenses)
+      .set(
+        deleted
+          ? { deletedAt: at, deletedBy: session.userId, updatedAt: at }
+          : { deletedAt: null, deletedBy: null, updatedAt: at },
+      )
+      .where(and(eq(s.expenses.groupId, groupId), eq(s.expenses.id, id)));
+    const after = await readExpense(tx, id);
+    if (!after) throw new NotFoundError("Expense");
+    const snapshot = snapshotExpense(current);
+    await audit(tx, {
+      action: deleted ? "expense.delete" : "expense.restore",
+      entityType: "expense",
+      entityId: id,
+      before: deleted ? snapshot : null,
+      after: deleted ? null : snapshot,
+    });
+    return after;
+  }
+
   async function setExpenseDeleted(id: string, deleted: boolean): Promise<StoredExpense> {
     await members();
     assertId(id, "Expense");
-    return db.transaction(async (tx) => {
-      const [row] = await tx
-        .select({ deletedAt: s.expenses.deletedAt })
-        .from(s.expenses)
-        .where(and(eq(s.expenses.groupId, groupId), eq(s.expenses.id, id)))
-        .for("update");
-      if (!row) throw new NotFoundError("Expense");
-      const current = await readExpense(tx, id);
-      if (!current) throw new NotFoundError("Expense");
-      if ((row.deletedAt !== null) === deleted) return current; // already in that state
-      const at = now();
-      await tx
-        .update(s.expenses)
-        .set(
-          deleted
-            ? { deletedAt: at, deletedBy: session.userId, updatedAt: at }
-            : { deletedAt: null, deletedBy: null, updatedAt: at },
-        )
-        .where(and(eq(s.expenses.groupId, groupId), eq(s.expenses.id, id)));
-      const after = await readExpense(tx, id);
-      if (!after) throw new NotFoundError("Expense");
-      const snapshot = snapshotExpense(current);
-      await audit(tx, {
-        action: deleted ? "expense.delete" : "expense.restore",
-        entityType: "expense",
-        entityId: id,
-        before: deleted ? snapshot : null,
-        after: deleted ? null : snapshot,
-      });
-      return after;
-    });
+    return db.transaction((tx) => setExpenseDeletedIn(tx, id, deleted));
   }
 
   async function setSettlementDeleted(id: string, deleted: boolean): Promise<StoredSettlement> {
@@ -475,7 +548,7 @@ export function createLedgerStore(options: StoreOptions): LedgerStore {
     });
   }
 
-  return {
+  const store: LedgerStore = {
     session,
     members,
 
@@ -521,34 +594,16 @@ export function createLedgerStore(options: StoreOptions): LedgerStore {
       return readExpense(db, id);
     },
 
+    async listImportExpenses(importId) {
+      await members();
+      if (!UUID.test(importId)) return [];
+      return readExpenses(db, eq(s.expenses.importId, importId));
+    },
+
     async createExpense(input) {
       await members();
       await expenseInput(input);
-      return db.transaction(async (tx) => {
-        const at = now();
-        const [row] = await tx
-          .insert(s.expenses)
-          .values({
-            ...expenseColumns(input),
-            groupId,
-            createdBy: session.userId,
-            createdAt: at,
-            updatedAt: at,
-          })
-          .returning({ id: s.expenses.id });
-        if (!row) throw new Error("expense insert returned nothing");
-        await writePayersAndShares(tx, row.id, input);
-        const created = await readExpense(tx, row.id);
-        if (!created) throw new Error("expense vanished after insert");
-        await audit(tx, {
-          action: "expense.create",
-          entityType: "expense",
-          entityId: row.id,
-          before: null,
-          after: snapshotExpense(created),
-        });
-        return created;
-      });
+      return db.transaction((tx) => insertExpense(tx, input));
     },
 
     async updateExpense(id, input, expectedUpdatedAt) {
@@ -678,6 +733,27 @@ export function createLedgerStore(options: StoreOptions): LedgerStore {
 
     deleteSettlement: (id) => setSettlementDeleted(id, true),
     restoreSettlement: (id) => setSettlementDeleted(id, false),
+  };
+
+  return {
+    store,
+    session,
+    now,
+    async prepareExpense(input) {
+      await members();
+      try {
+        await expenseInput(input);
+        return { priced: true };
+      } catch (error) {
+        // A weekend or an outage must not block adding twelve rows: the expense is added and
+        // shows "No rate" until someone sets one, like any other expense without a rate.
+        if (error instanceof RateUnavailableError) return { priced: false };
+        throw error;
+      }
+    },
+    insertExpense,
+    deleteExpenseIn: (tx, id) => setExpenseDeletedIn(tx, id, true),
+    audit,
   };
 }
 

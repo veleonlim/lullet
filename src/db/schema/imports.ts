@@ -48,8 +48,26 @@ export const imports = pgTable(
     storageKey: text("storage_key"),
     imageDeletedAt: timestamptz("image_deleted_at"),
     caption: text(),
+    /** What the stored original is (image/png, image/jpeg or image/webp) and its size after metadata removal. */
+    mediaType: text("media_type"),
+    byteSize: integer("byte_size"),
     /** Model that produced the draft, for example claude-haiku-5-5. */
     model: text(),
+    /** Why the read produced no rows (refused, max_tokens, malformed, api_error, not_configured); null when it worked. */
+    extractionError: text("extraction_error"),
+    /** How many times the stronger model was asked to read the image again. */
+    rereads: smallint().notNull().default(0),
+    /** Batch wide choices: payers, the payers' own share, equal or percent. */
+    draft: jsonb(),
+    /** A total shown on the screenshot, for the sum check. */
+    screenTotalText: text("screen_total_text"),
+    screenTotalMinor: minorUnits("screen_total_minor"),
+    screenTotalCurrency: currencyCode("screen_total_currency"),
+    /** Short remarks from the model about the screenshot as a whole. */
+    notes: text()
+      .array()
+      .notNull()
+      .default(sql`'{}'::text[]`),
     createdAt: timestamptz("created_at").notNull().defaultNow(),
     expiresAt: timestamptz("expires_at"),
     confirmedAt: timestamptz("confirmed_at"),
@@ -66,6 +84,13 @@ export const imports = pgTable(
       .where(sql`${t.status} IN ('draft', 'confirmed')`),
     index("imports_group_created_idx").on(t.groupId, t.createdAt),
     check("imports_sha256_check", sql`${t.imageSha256} ~ '^[0-9a-f]{64}$'`),
+    check("imports_draft_expiry_check", sql`${t.status} <> 'draft' OR ${t.expiresAt} IS NOT NULL`),
+    check("imports_rereads_check", sql`${t.rereads} >= 0`),
+    check(
+      "imports_screen_total_check",
+      sql`(${t.screenTotalMinor} IS NULL OR ${t.screenTotalMinor} > 0)
+        AND (${t.screenTotalCurrency} IS NULL OR ${t.screenTotalCurrency} ~ '^[A-Z]{3}$')`,
+    ),
     check(
       "imports_confirmed_check",
       sql`${t.status} NOT IN ('confirmed', 'undone') OR ${t.confirmedAt} IS NOT NULL`,
@@ -84,6 +109,8 @@ export const importRows = pgTable(
       .references(() => imports.id, { onDelete: "cascade" }),
     position: integer().notNull(),
     merchant: text(),
+    /** The date exactly as shown on the screenshot; `spent_on` is our reading of it. */
+    dateText: text("date_text"),
     amountText: text("amount_text"),
     amountMinor: minorUnits("amount_minor"),
     currency: currencyCode("currency"),
@@ -101,7 +128,13 @@ export const importRows = pgTable(
       .array()
       .notNull()
       .default(sql`'{}'::text[]`),
-    /** Draft payer and split choices before they become expense rows. */
+    /** How sure we are of each field: clear, uncertain, guessed or unreadable. An edited field becomes clear. */
+    fieldStates: jsonb("field_states")
+      .notNull()
+      .default(sql`'{}'::jsonb`),
+    /** The existing expense or open draft row this one looks like, when flagged as a possible duplicate. */
+    duplicateOf: jsonb("duplicate_of"),
+    /** What this row changes from the batch split (members, equal or percent); null follows the batch. */
     draftSplit: jsonb("draft_split"),
   },
   (t) => [

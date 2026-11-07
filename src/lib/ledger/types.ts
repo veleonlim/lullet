@@ -4,6 +4,8 @@ import type { SplitMode } from "./expense-form";
 /** An expense as stored, with its payers and shares. Money is integer minor units. */
 export interface StoredExpense {
   readonly id: string;
+  /** The screenshot import that created it, if any. */
+  readonly importId?: string | null;
   readonly description: string;
   readonly category: CategoryId;
   readonly spentOn: string;
