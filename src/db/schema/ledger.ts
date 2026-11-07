@@ -45,8 +45,9 @@ export const expenses = pgTable(
     /** What the card was billed, when the receipt shows it. SGD is used as is; any other currency is converted at the day's rate in place of the shown amount. */
     billedAmountMinor: minorUnits("billed_amount_minor"),
     billedCurrency: currencyCode("billed_currency"),
-    /** SGD per 1 unit of the billed currency if there is one, else of `currency`; set on this single expense. */
+    /** SGD per 1 unit of `rateCurrency`; set on this single expense. Used only for an amount in that currency. */
     rate: numeric({ precision: 20, scale: 10 }),
+    rateCurrency: currencyCode("rate_currency"),
     splitMethod: splitMethod("split_method").notNull().default("equal"),
     createdBy: uuid("created_by")
       .notNull()
@@ -68,7 +69,11 @@ export const expenses = pgTable(
       sql`(${t.billedAmountMinor} IS NULL AND ${t.billedCurrency} IS NULL)
         OR (${t.billedAmountMinor} IS NOT NULL AND ${t.billedAmountMinor} > 0 AND ${t.billedCurrency} IS NOT NULL AND ${t.billedCurrency} ~ '^[A-Z]{3}$')`,
     ),
-    check("expenses_rate_check", sql`${t.rate} IS NULL OR ${t.rate} > 0`),
+    check(
+      "expenses_rate_check",
+      sql`(${t.rate} IS NULL AND ${t.rateCurrency} IS NULL)
+        OR (${t.rate} IS NOT NULL AND ${t.rate} > 0 AND ${t.rateCurrency} IS NOT NULL AND ${t.rateCurrency} ~ '^[A-Z]{3}$')`,
+    ),
     check("expenses_soft_delete_check", sql`(${t.deletedAt} IS NULL) = (${t.deletedBy} IS NULL)`),
   ],
 );
@@ -140,7 +145,9 @@ export const settlements = pgTable(
     currency: currencyCode("currency").notNull(),
     billedAmountMinor: minorUnits("billed_amount_minor"),
     billedCurrency: currencyCode("billed_currency"),
+    /** SGD per 1 unit of `rateCurrency`; set on this single settlement. Used only for an amount in that currency. */
     rate: numeric({ precision: 20, scale: 10 }),
+    rateCurrency: currencyCode("rate_currency"),
     settledOn: date("settled_on", { mode: "string" }).notNull(),
     note: text(),
     createdBy: uuid("created_by")
@@ -172,7 +179,11 @@ export const settlements = pgTable(
       sql`(${t.billedAmountMinor} IS NULL AND ${t.billedCurrency} IS NULL)
         OR (${t.billedAmountMinor} IS NOT NULL AND ${t.billedAmountMinor} > 0 AND ${t.billedCurrency} IS NOT NULL AND ${t.billedCurrency} ~ '^[A-Z]{3}$')`,
     ),
-    check("settlements_rate_check", sql`${t.rate} IS NULL OR ${t.rate} > 0`),
+    check(
+      "settlements_rate_check",
+      sql`(${t.rate} IS NULL AND ${t.rateCurrency} IS NULL)
+        OR (${t.rate} IS NOT NULL AND ${t.rate} > 0 AND ${t.rateCurrency} IS NOT NULL AND ${t.rateCurrency} ~ '^[A-Z]{3}$')`,
+    ),
     check(
       "settlements_soft_delete_check",
       sql`(${t.deletedAt} IS NULL) = (${t.deletedBy} IS NULL)`,

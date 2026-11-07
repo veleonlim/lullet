@@ -4,6 +4,7 @@ import { allocateProportional, type Allocation, type MemberId } from "./allocate
 import {
   toReportingCurrency,
   type BilledAmount,
+  type CurrencyRate,
   type ConversionSource,
   type RateBook,
 } from "./convert";
@@ -26,7 +27,7 @@ export interface LedgerExpense {
   readonly amountMinor: Minor;
   readonly currency: CurrencyCode;
   readonly billed?: BilledAmount | undefined;
-  readonly rate?: Rate | undefined;
+  readonly rate?: CurrencyRate | undefined;
   /** Who paid how much, in the native currency. Sums to `amountMinor`. */
   readonly payers: readonly Allocation[];
   /** Who owes how much, in the native currency. Sums to `amountMinor`. */
@@ -42,7 +43,7 @@ export interface LedgerSettlement {
   readonly amountMinor: Minor;
   readonly currency: CurrencyCode;
   readonly billed?: BilledAmount | undefined;
-  readonly rate?: Rate | undefined;
+  readonly rate?: CurrencyRate | undefined;
 }
 
 export interface MemberBalance {

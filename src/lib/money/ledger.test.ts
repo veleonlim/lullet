@@ -278,11 +278,54 @@ describe("expense invariants", () => {
   });
 
   it("uses a per-expense rate when present", () => {
-    const withRate = expense({ ...good, id: "r", rate: parseRate("2") });
+    const withRate = expense({ ...good, id: "r", rate: { currency: "EUR", rate: parseRate("2") } });
     expect(expenseInReportingCurrency(withRate, rates, MEMBERS)).toMatchObject({
       totalMinor: 200,
       source: "expense_rate",
     });
+  });
+});
+
+describe("a rate set on an expense or settlement names its currency", () => {
+  const eurRate = { currency: "EUR", rate: parseRate("1.44") } as const;
+  const billedChf = { amountMinor: 9_840, currency: "CHF" } as const;
+
+  it("does not apply an EUR rate to a CHF billed figure added by a later edit", () => {
+    const train = expense({
+      id: "train",
+      amountMinor: 10_000,
+      rate: eurRate,
+      payers: only("A", 10_000),
+      shares: equalSplit(10_000, MEMBERS, MEMBERS),
+    });
+    expect(expenseInReportingCurrency(train, rates, MEMBERS)).toMatchObject({
+      totalMinor: 14_400,
+      source: "expense_rate",
+    });
+    const edited = { ...train, billed: billedChf };
+    expect(expenseInReportingCurrency(edited, rates, MEMBERS)).toMatchObject({
+      totalMinor: 15_353, // 98.40 CHF x 1.5603
+      source: "market",
+      basis: "billed",
+    });
+  });
+
+  it("does not apply an EUR rate to a CHF billed figure on a settlement", () => {
+    const settlement: LedgerSettlement = {
+      id: "s1",
+      date: "2026-11-02",
+      fromMemberId: "B",
+      toMemberId: "A",
+      amountMinor: 10_000,
+      currency: "EUR",
+      rate: eurRate,
+    };
+    const sentBy = (s: LedgerSettlement) =>
+      computeBalances({ members: MEMBERS, expenses: [], settlements: [s], rates }).reporting.find(
+        (b) => b.memberId === "B",
+      )?.settledMinor;
+    expect(sentBy(settlement)).toBe(14_400);
+    expect(sentBy({ ...settlement, billed: billedChf })).toBe(15_353);
   });
 });
 

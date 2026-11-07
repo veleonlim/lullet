@@ -15,6 +15,8 @@ import { convertMinor, parseRate, type Rate } from "./rate";
  * Steps 3 to 5 convert the billed amount when the bank billed in a currency other
  * than SGD (the shown amount stays for reference), otherwise the shown amount;
  * `basis` says which. Rates are always SGD per 1 unit of that converted currency.
+ * A rate set on the expense names its own currency and is applied only to an
+ * amount in that currency; otherwise it is skipped, never reinterpreted.
  * With none of these available the conversion fails loudly; it never guesses.
  */
 
@@ -25,14 +27,20 @@ export interface BilledAmount {
   readonly currency: CurrencyCode;
 }
 
+/** SGD per 1 unit of `currency`. */
+export interface CurrencyRate {
+  readonly currency: CurrencyCode;
+  readonly rate: Rate;
+}
+
 export interface ConvertibleAmount {
   readonly date: IsoDate;
   readonly amountMinor: Minor;
   readonly currency: CurrencyCode;
   /** What the card was actually billed, when the screenshot shows it. */
   readonly billed?: BilledAmount | undefined;
-  /** A rate set on this one expense: SGD per 1 unit of the billed currency if billed, else of `currency`. */
-  readonly rate?: Rate | undefined;
+  /** A rate set on this one expense. */
+  readonly rate?: CurrencyRate | undefined;
 }
 
 export interface Conversion {
@@ -118,10 +126,12 @@ export function toReportingCurrency(amount: ConvertibleAmount, book: RateBook): 
 function pickRate(
   date: IsoDate,
   currency: CurrencyCode,
-  expenseRate: Rate | undefined,
+  expenseRate: CurrencyRate | undefined,
   book: RateBook,
 ): { rate: Rate; source: ConversionSource } | undefined {
-  if (expenseRate) return { rate: expenseRate, source: "expense_rate" };
+  if (expenseRate?.currency === currency) {
+    return { rate: expenseRate.rate, source: "expense_rate" };
+  }
   const override = book.dayOverride(date, currency);
   if (override) return { rate: override, source: "day_override" };
   const market = book.market(date, currency);

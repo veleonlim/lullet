@@ -15,6 +15,13 @@
       "when": 1794058728650,
       "tag": "0001_invariants",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1794059978636,
+      "tag": "0002_eminent_robbie_robertson",
+      "breakpoints": true
     }
   ]
 }

@@ -49,7 +49,10 @@ async function loadLedger(
       row.billedAmountMinor !== null && row.billedCurrency !== null
         ? { amountMinor: row.billedAmountMinor, currency: row.billedCurrency as "SGD" }
         : undefined,
-    rate: row.rate === null ? undefined : parseRate(row.rate),
+    rate:
+      row.rate !== null && row.rateCurrency !== null
+        ? { currency: row.rateCurrency as "EUR", rate: parseRate(row.rate) }
+        : undefined,
     payers: payers
       .filter((p) => p.expenseId === row.id)
       .map((p) => ({ memberId: p.userId, minor: p.amountMinor })),

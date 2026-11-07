@@ -251,11 +251,49 @@ describe("expense column rules", () => {
     expect(row).toMatchObject({ billedAmountMinor: 1500, billedCurrency: "SGD" });
   });
 
-  it("stores exact rates and rejects non positive ones", async () => {
-    const id = await insertExpense(db, { ...base(), rate: "1.4344" });
+  it("stores exact rates with the currency they apply to", async () => {
+    const id = await insertExpense(db, {
+      ...base(),
+      rate: { rate: "1.4344", currency: "EUR" },
+    });
     const [row] = await db.select().from(s.expenses).where(eq(s.expenses.id, id));
-    expect(row?.rate).toBe("1.4344000000");
-    await expectPgError(insertExpense(db, { ...base(), rate: "0" }), { code: PG.checkViolation });
+    expect(row).toMatchObject({ rate: "1.4344000000", rateCurrency: "EUR" });
+  });
+
+  it.each([
+    ["a rate of zero", { rate: "0", currency: "EUR" }],
+    ["a negative rate", { rate: "-1", currency: "EUR" }],
+    ["a rate without its currency", { rate: "1.4344", currency: null }],
+    ["a rate whose currency is not an ISO code", { rate: "1.4344", currency: "eur" }],
+  ])("rejects an expense with %s", async (_label, rate) => {
+    await expectPgError(
+      db.insert(s.expenses).values({
+        groupId: seed.groupId,
+        description: "x",
+        spentOn: "2026-11-02",
+        amountMinor: 100,
+        currency: "EUR",
+        rate: rate.rate,
+        rateCurrency: rate.currency,
+        createdBy: who(A),
+      }),
+      { code: PG.checkViolation, constraint: "expenses_rate_check" },
+    );
+  });
+
+  it("rejects an expense with a rate currency but no rate", async () => {
+    await expectPgError(
+      db.insert(s.expenses).values({
+        groupId: seed.groupId,
+        description: "x",
+        spentOn: "2026-11-02",
+        amountMinor: 100,
+        currency: "EUR",
+        rateCurrency: "EUR",
+        createdBy: who(A),
+      }),
+      { code: PG.checkViolation, constraint: "expenses_rate_check" },
+    );
   });
 
   it("returns dates as plain strings and amounts as numbers", async () => {
@@ -405,6 +443,34 @@ describe("soft deletes", () => {
       .update(s.settlements)
       .set({ deletedAt: new Date(), deletedBy: who(A) })
       .where(eq(s.settlements.id, row?.id ?? ""));
+  });
+
+  it("stores a settlement rate with its currency and rejects one without", async () => {
+    const base = {
+      groupId: seed.groupId,
+      fromUserId: who(B),
+      toUserId: who(A),
+      amountMinor: 100,
+      currency: "EUR",
+      settledOn: "2026-11-03",
+      createdBy: who(B),
+    };
+    const [row] = await db
+      .insert(s.settlements)
+      .values({ ...base, rate: "1.4344", rateCurrency: "EUR" })
+      .returning();
+    expect(row).toMatchObject({ rate: "1.4344000000", rateCurrency: "EUR" });
+    for (const bad of [
+      { rate: "1.4344" },
+      { rateCurrency: "EUR" },
+      { rate: "0", rateCurrency: "EUR" },
+      { rate: "1.4344", rateCurrency: "eur" },
+    ]) {
+      await expectPgError(db.insert(s.settlements).values({ ...base, ...bad }), {
+        code: PG.checkViolation,
+        constraint: "settlements_rate_check",
+      });
+    }
   });
 
   it("rejects settlements to oneself, of nothing, or between non members", async () => {

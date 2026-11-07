@@ -31,7 +31,7 @@ describe("toReportingCurrency precedence", () => {
         currency: "SGD",
         amountMinor: 1234,
         billed: { amountMinor: 1, currency: "SGD" },
-        rate: parseRate("9"),
+        rate: { currency: "SGD", rate: parseRate("9") },
       },
       book,
     );
@@ -40,14 +40,21 @@ describe("toReportingCurrency precedence", () => {
 
   it("1. uses the billed SGD figure exactly, even when every rate exists", () => {
     const result = toReportingCurrency(
-      { ...base, billed: { amountMinor: 14_999, currency: "SGD" }, rate: parseRate("2") },
+      {
+        ...base,
+        billed: { amountMinor: 14_999, currency: "SGD" },
+        rate: { currency: "EUR", rate: parseRate("2") },
+      },
       book,
     );
     expect(result).toEqual({ sgdMinor: 14_999, source: "billed", basis: "billed" });
   });
 
   it("2. uses the rate set on the expense over the day override and market", () => {
-    const result = toReportingCurrency({ ...base, rate: parseRate("1.6") }, book);
+    const result = toReportingCurrency(
+      { ...base, rate: { currency: "EUR", rate: parseRate("1.6") } },
+      book,
+    );
     expect(result.source).toBe("expense_rate");
     expect(result.sgdMinor).toBe(16_000);
   });
@@ -90,12 +97,57 @@ describe("toReportingCurrency precedence", () => {
     expect(result).toMatchObject({ source: "day_override", basis: "billed", sgdMinor: 16_000 });
   });
 
-  it("applies a rate set on the expense to the billed currency", () => {
+  it("applies a rate set on the expense to the billed currency when it is a rate for that currency", () => {
     const result = toReportingCurrency(
-      { ...base, billed: { amountMinor: 10_000, currency: "CHF" }, rate: parseRate("1.7") },
+      {
+        ...base,
+        billed: { amountMinor: 10_000, currency: "CHF" },
+        rate: { currency: "CHF", rate: parseRate("1.7") },
+      },
       book,
     );
     expect(result).toMatchObject({ source: "expense_rate", basis: "billed", sgdMinor: 17_000 });
+  });
+
+  it("never applies an EUR rate to a CHF billed amount added later; the CHF day rate is used", () => {
+    // 1.44 SGD per EUR was set on a EUR 100.00 expense. The bank then billed CHF 98.40.
+    const eurRate = { currency: "EUR", rate: parseRate("1.44") } as const;
+    const billedChf = { amountMinor: 9_840, currency: "CHF" } as const;
+
+    expect(toReportingCurrency({ ...base, rate: eurRate }, book)).toMatchObject({
+      source: "expense_rate",
+      basis: "shown",
+      sgdMinor: 14_400,
+    });
+    const afterEdit = toReportingCurrency({ ...base, rate: eurRate, billed: billedChf }, book);
+    expect(afterEdit).toMatchObject({ source: "market", basis: "billed", sgdMinor: 15_353 }); // 98.40 x 1.5603, not x 1.44
+    expect(afterEdit.rate).toEqual(parseRate("1.5603"));
+
+    const withChfOverride = createRateBook({
+      overrides: [{ date: "2026-11-02", currency: "CHF", rate: "1.6" }],
+      market: [{ date: "2026-11-02", currency: "CHF", rate: "1.5603" }],
+    });
+    expect(
+      toReportingCurrency({ ...base, rate: eurRate, billed: billedChf }, withChfOverride),
+    ).toMatchObject({ source: "day_override", sgdMinor: 15_744 }); // 98.40 x 1.6
+  });
+
+  it("never applies a rate for the billed currency to the shown amount", () => {
+    // Only possible if the billed figure is removed again: the CHF rate must not price EUR.
+    const result = toReportingCurrency(
+      { ...base, rate: { currency: "CHF", rate: parseRate("1.7") } },
+      book,
+    );
+    expect(result).toMatchObject({ source: "day_override", basis: "shown", sgdMinor: 15_100 });
+  });
+
+  it("fails rather than reinterpret a rate for another currency when no other rate exists", () => {
+    expect(() =>
+      toReportingCurrency(
+        { ...base, date: "2026-11-04", rate: { currency: "CHF", rate: parseRate("1.7") } },
+        book,
+      ),
+    ).toThrow(expect.objectContaining({ code: "missing_rate" }));
   });
 
   it("fails when the billed currency has no rate even if the shown currency does", () => {
@@ -146,7 +198,7 @@ describe("toReportingCurrency precedence", () => {
               amountMinor,
               currency,
               billed: { amountMinor: billedMinor, currency: "SGD" },
-              rate: parseRate("3"),
+              rate: { currency, rate: parseRate("3") },
             },
             book,
           );

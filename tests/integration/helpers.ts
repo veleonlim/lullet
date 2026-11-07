@@ -51,7 +51,7 @@ export interface NewExpense {
   readonly shares: readonly { userId: string; amountMinor: number; weight?: number }[];
   readonly spentOn?: string;
   readonly billed?: { amountMinor: number; currency: string };
-  readonly rate?: string;
+  readonly rate?: { rate: string; currency: string };
 }
 
 /** Inserts an expense with its payers and shares in one transaction, as the app must. */
@@ -67,7 +67,8 @@ export async function insertExpense(db: Database, input: NewExpense): Promise<st
         currency: input.currency ?? "EUR",
         billedAmountMinor: input.billed?.amountMinor,
         billedCurrency: input.billed?.currency,
-        rate: input.rate,
+        rate: input.rate?.rate,
+        rateCurrency: input.rate?.currency,
         createdBy: input.payers[0]?.userId ?? input.seed.userIds[0] ?? "",
       })
       .returning({ id: s.expenses.id });
