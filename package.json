@@ -23,7 +23,9 @@
     "test:e2e": "playwright test",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
-    "db:check": "drizzle-kit check"
+    "db:check": "drizzle-kit check",
+    "auth:bootstrap": "node --env-file-if-exists=.env --import tsx scripts/bootstrap-group.ts",
+    "auth:mint-link": "node --env-file-if-exists=.env --import tsx scripts/mint-login-link.ts"
   },
   "dependencies": {
     "drizzle-orm": "0.45.4",

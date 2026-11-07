@@ -31,7 +31,14 @@ export default defineConfig({
     coverage: {
       provider: "v8",
       include: ["src/lib/**/*.ts"],
-      exclude: ["src/**/*.test.ts", "src/lib/**/index.ts"],
+      exclude: [
+        "src/**/*.test.ts",
+        "src/lib/**/index.ts",
+        // Database and framework bound code is covered by the integration and Playwright suites.
+        "src/lib/**/db/**",
+        "src/lib/auth/deps.ts",
+        "src/lib/auth/session.ts",
+      ],
       reporter: ["text-summary", "lcov"],
       thresholds: { lines: 95, functions: 95, branches: 90, statements: 95 },
     },

@@ -2,7 +2,7 @@
 
 Europe Split: a Splitwise-like expense splitter for four people (the requester, their girlfriend and their parents), first used on a trip to Switzerland and Italy.
 
-Telegram is the capture and edit surface; this web app is the database and dashboard. This repository currently holds slice 1, the foundation: app skeleton, database schema, the money and ledger library, and the quality gates. Later slices add the ledger UI, auth, the Telegram bot, screenshot import and the dashboard.
+Telegram is the capture and edit surface; this web app is the database and dashboard. This repository currently holds slice 1, the foundation (app skeleton, database schema, the money and ledger library, the quality gates), and Telegram sign-in. Later slices add the ledger UI, the Telegram bot, screenshot import and the dashboard.
 
 ## Stack
 
@@ -26,8 +26,13 @@ pnpm install
 cp .env.example .env          # local settings; never commit .env
 docker compose up -d          # Postgres 18 on localhost:5432
 pnpm db:migrate               # apply migrations
+pnpm auth:bootstrap --group "Switzerland and Italy" \
+  --member "Name=<telegram-user-id>" --member "Name=<telegram-user-id>"   # fill the allowlist
 pnpm dev                      # http://localhost:3000
+LULLET_ALLOW_LINK_MINT=1 pnpm auth:mint-link <telegram-user-id>          # a login link, without a bot
 ```
+
+Every page needs a signed-in member, so the app is only useful once the allowlist is filled in; see [Sign in with Telegram](#sign-in-with-telegram).
 
 First time running end to end tests: `pnpm exec playwright install chromium`.
 
@@ -43,12 +48,14 @@ First time running end to end tests: `pnpm exec playwright install chromium`.
 | `pnpm test`                    | Unit and property tests (no external services; what `.no-mistakes.yaml` runs as `test`) |
 | `pnpm test:coverage`           | Same, with coverage thresholds on `src/lib`                                             |
 | `pnpm test:integration`        | Integration tests against real Postgres; needs `DATABASE_URL`                           |
-| `pnpm test:e2e`                | Playwright smoke tests on a phone and a desktop viewport                                |
+| `pnpm test:e2e`                | Playwright on a phone and a desktop viewport; needs Postgres (`DATABASE_URL`)           |
+| `pnpm auth:bootstrap`          | Create the group and link its members to Telegram accounts (once)                       |
+| `pnpm auth:mint-link`          | Print a one-time browser login link for a member (guarded, see below)                   |
 | `pnpm db:generate`             | Generate a migration from schema changes                                                |
 | `pnpm db:migrate`              | Apply migrations to `DATABASE_URL_UNPOOLED` or `DATABASE_URL`                           |
 | `pnpm db:check`                | Verify the migration history is consistent                                              |
 
-`pnpm test:e2e` starts `pnpm dev` itself (or reuses a running server). With `CI=1` it serves the production build instead, so run `pnpm build` first.
+`pnpm test:e2e` starts `pnpm dev` itself on port 3100 (or reuses a server already running there). With `CI=1` it serves the production build instead, so run `pnpm build` first. The suite uses its own database, `lullet_e2e`, created and migrated on the server `DATABASE_URL` points at, and its own made-up secrets and bot token; no real Telegram bot is involved.
 
 ## Continuous integration
 
@@ -58,31 +65,51 @@ First time running end to end tests: `pnpm exec playwright install chromium`.
 2. **Unit and property tests** with coverage thresholds.
 3. **Integration tests** against a `postgres:18` service container.
 4. **Build**: `next build`.
-5. **Playwright** on the production build, phone and desktop projects.
+5. **Playwright** on the production build, phone and desktop projects, against a Postgres service container.
 
 No job calls a live external service; exchange rate tests replay recorded responses.
 
 ## Environment and secrets
 
-Slice 1 reads only the three database variables marked "now" below. `.env.example` lists every variable later slices will need, as commented placeholders. Nothing external has been created yet: the accounts and keys below are owned by the captain and are set up when the slice that needs them starts.
+`.env.example` lists every variable, with the ones not needed yet as commented placeholders. Secrets come only from the environment (Vercel project settings in production, `.env` locally, never committed). Nothing external has been created yet: the accounts and keys below are owned by the captain and are set up when the slice that needs them starts. Tests never need a real bot or real secrets.
 
-| Variable                                                               | Needed by | What it is                                                            |
-| ---------------------------------------------------------------------- | --------- | --------------------------------------------------------------------- |
-| `DATABASE_URL`                                                         | now       | Postgres connection. In production, Neon's pooled connection string   |
-| `DATABASE_URL_UNPOOLED`                                                | now       | Optional. Neon's direct connection, preferred for migrations          |
-| `DATABASE_POOL_MAX`                                                    | now       | Optional. Connections per instance, default 5; use 1 on serverless    |
-| `TELEGRAM_BOT_TOKEN`                                                   | slice 3   | Bot token from BotFather                                              |
-| `TELEGRAM_WEBHOOK_SECRET`                                              | slice 3   | Secret token checked on every webhook call                            |
-| `ANTHROPIC_API_KEY`                                                    | slice 4   | Claude Console API key for screenshot extraction                      |
-| `S3_ENDPOINT`, `S3_BUCKET`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY` | slice 4   | Cloudflare R2 (S3 compatible) private bucket for original screenshots |
-| `SESSION_SECRET`                                                       | slice 2   | Signs session cookies                                                 |
-| `CRON_SECRET`                                                          | slice 7   | Protects scheduled jobs such as the 30 day screenshot deletion        |
+| Variable                                                               | Needed by | What it is                                                                                               |
+| ---------------------------------------------------------------------- | --------- | -------------------------------------------------------------------------------------------------------- |
+| `DATABASE_URL`                                                         | now       | Postgres connection. In production, Neon's pooled connection string                                      |
+| `DATABASE_URL_UNPOOLED`                                                | now       | Optional. Neon's direct connection, preferred for migrations                                             |
+| `DATABASE_POOL_MAX`                                                    | now       | Optional. Connections per instance, default 5; use 1 on serverless                                       |
+| `SESSION_SECRET`                                                       | now       | At least 32 characters. Keys the hash of session cookies and login links; changing it signs everyone out |
+| `APP_URL`                                                              | now       | Public origin (`https://...`), used to build login links. Required in production                         |
+| `TELEGRAM_BOT_TOKEN`                                                   | now       | Bot token from BotFather. Verifies Mini App sign-in; also used by the bot (slice 3)                      |
+| `TELEGRAM_WEBHOOK_SECRET`                                              | slice 3   | Secret token checked on every webhook call                                                               |
+| `ANTHROPIC_API_KEY`                                                    | slice 4   | Claude Console API key for screenshot extraction                                                         |
+| `S3_ENDPOINT`, `S3_BUCKET`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY` | slice 4   | Cloudflare R2 (S3 compatible) private bucket for original screenshots                                    |
+| `CRON_SECRET`                                                          | slice 7   | Protects scheduled jobs such as the 30 day screenshot deletion                                           |
+
+## Sign in with Telegram
+
+Only four allowlisted Telegram users can use the app (decision D3). Everyone else gets no session and no data. Code is in `src/lib/auth/`; there are no passwords.
+
+**The allowlist** is the `telegram_links` table: a Telegram user id is served only if it is linked to a member of the group. `pnpm auth:bootstrap` creates the group and its members (the first `--member` is the owner; the order is the group's fixed member order) and refuses to run twice. After that the owner re-links a member from the **Members** page (for example when someone loses their Telegram account). A re-bind signs the member's old sessions and unused login links out, and writes an `audit_log` row.
+
+**Two ways in**
+
+- **Mini App** (inside Telegram): the page reads the signed launch data (`tgWebAppData`) and posts it to `POST /api/auth/telegram`. The server checks it as Telegram documents ([Mini Apps: validating data](https://core.telegram.org/bots/webapps#validating-data-received-via-the-mini-app)): HMAC-SHA256 with the key `HMAC_SHA256("WebAppData", bot token)` over the sorted `key=value` fields, compared in constant time, and `auth_date` no older than one hour. The Telegram user id must then be on the allowlist.
+- **Browser**: the bot (a later task) sends a one-time link. `mintLoginLink(telegramUserId)` in `src/lib/auth/db/login-links.ts` is the function it calls; it returns `null` for anyone not on the allowlist, and otherwise a URL `APP_URL/signin/link/<token>`. The token is 256 random bits, stored only as an HMAC hash, valid for 10 minutes, and used up by one atomic conditional `UPDATE`, so it works once even under concurrent requests. Minting a new link withdraws the member's older unused one. Opening the link only shows a **Continue** button (`POST /api/auth/link` consumes it), because Telegram fetches URLs in messages to build previews and a plain GET would burn the link. The sign-in page tells people to send `/login` to the bot; that is the contract for the bot task.
+
+Until the bot exists, mint a link yourself: `LULLET_ALLOW_LINK_MINT=1 pnpm auth:mint-link <telegram-user-id>` prints the URL (guarded: it refuses without that variable, because the link signs in as that member; it works against production too if `DATABASE_URL`, `SESSION_SECRET` and `APP_URL` point there).
+
+**Sessions** are server side (`sessions` table). The cookie `__Host-lullet_session` is `httpOnly`, `Secure`, `SameSite=Lax`, path `/`, and holds only a random token; the table stores its HMAC hash. A session lasts 30 days. Every login issues a new token and destroys the one the browser held (no session fixation); logout deletes the row, so a copied cookie stops working. A session also ends when the member leaves the group or the allowlist. The two cookie-setting POST routes refuse cross-site requests (`Sec-Fetch-Site` or `Origin`).
+
+**Guarding pages**: `src/proxy.ts` sends cookie-less requests to `/signin` (and answers `401` for `/api/*`), and the `(app)` route group's layout checks the session for real. Pages, server actions and route handlers learn who is calling only through `getSession()` in `src/lib/auth/session.ts`, which returns `{ userId, groupId }` or `null`; the data access layer scopes every query by that `groupId`. `/api/health` and the sign-in routes are public.
+
+Not done here: rate limiting of the public auth routes (slice 7), and the bot itself.
 
 ## Database
 
 Schema lives in `src/db/schema/` and migrations in `drizzle/`. Run `pnpm db:generate` after changing the schema and commit the result; CI fails if the migrations and schema disagree.
 
-Tables: `users`, `groups`, `memberships`, `expenses`, `expense_payers`, `expense_shares`, `settlements`, `imports`, `import_rows`, `fx_rates` (stored market rates), `daily_rates` (per day default rate overrides), `budgets`, `audit_log` and `telegram_links`.
+Tables: `users`, `groups`, `memberships` (with `is_owner`, at most one owner per group), `expenses`, `expense_payers`, `expense_shares`, `settlements`, `imports`, `import_rows`, `fx_rates` (stored market rates), `daily_rates` (per day default rate overrides), `budgets`, `audit_log`, `telegram_links`, `sessions` and `login_tokens`.
 
 Money is always an integer count of minor units (`4850` plus `EUR`), stored as `bigint`. The database itself enforces what it can, in `0000_core_schema.sql` and the hand written `0001_invariants.sql`:
 
@@ -116,11 +143,14 @@ Properties tested with fast-check: allocations sum exactly and stay within one u
 ## Layout
 
 ```
-src/app            Next.js routes (placeholder home page, /api/health)
+src/app            Next.js routes: (app) pages that need a session, /signin, /api/auth, /api/health
+src/proxy.ts       First gate: no session cookie, no protected page
 src/components     UI building blocks (mobile first app shell)
 src/db             Drizzle schema, client and migration runner
+src/lib/auth       Telegram sign-in: init data check, login links, sessions (db/ holds the database code)
 src/lib/money      Money and ledger library
 src/lib/fx         Exchange rate client
+scripts            auth:bootstrap and auth:mint-link
 src/test-support   Shared test generators
 tests/integration  Postgres integration tests
 tests/e2e          Playwright specs

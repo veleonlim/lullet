@@ -36,6 +36,13 @@
       "when": 1794060844590,
       "tag": "0004_rates_quoted_in_sgd",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1794061734044,
+      "tag": "0005_telegram_auth",
+      "breakpoints": true
     }
   ]
 }
