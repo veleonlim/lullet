@@ -64,7 +64,7 @@ No job calls a live external service; exchange rate tests replay recorded respon
 
 ## Environment and secrets
 
-Slice 1 reads only `DATABASE_URL`. `.env.example` lists every variable later slices will need, as commented placeholders. Nothing external has been created yet: the accounts and keys below are owned by the captain and are set up when the slice that needs them starts.
+Slice 1 reads only the three database variables marked "now" below. `.env.example` lists every variable later slices will need, as commented placeholders. Nothing external has been created yet: the accounts and keys below are owned by the captain and are set up when the slice that needs them starts.
 
 | Variable                                                               | Needed by | What it is                                                            |
 | ---------------------------------------------------------------------- | --------- | --------------------------------------------------------------------- |
