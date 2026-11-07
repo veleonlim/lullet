@@ -484,6 +484,25 @@ test.describe("balances and settling up", () => {
     expect((await readBalances(page)).Mum).toBe("-S$39.50");
   });
 
+  test("a billed amount typed for a foreign currency is dropped when the currency goes back to SGD", async ({
+    page,
+  }) => {
+    await page.goto("/settlements/new");
+    await page.getByLabel("Paid by").selectOption({ label: "Mum" });
+    await page.getByLabel("Paid to").selectOption({ label: "Alex" });
+    await page.getByLabel("Amount", { exact: true }).fill("20.00");
+    await page.getByLabel("Currency", { exact: true }).selectOption("EUR");
+    await page.getByRole("button", { name: "+ Billed amount" }).click();
+    await page.getByLabel("Billed amount").fill("47.00");
+    await page.getByLabel("Currency", { exact: true }).selectOption("SGD");
+    await page.getByLabel("Date").fill("2026-11-05");
+    await page.getByRole("button", { name: "Record settlement" }).click();
+
+    const row = page.getByTestId("settlement-row");
+    await expect(row).toContainText("S$20.00");
+    await expect(row).not.toContainText("S$47.00");
+  });
+
   test("rejects a settlement from someone to themselves", async ({ page }) => {
     await page.goto("/settlements/new");
     await page.getByLabel("Paid by").selectOption({ label: "Mum" });

@@ -47,9 +47,13 @@ export function SettlementForm({
     () => serverToday,
   );
 
+  const billed =
+    isCurrencyCode(values.currency) && values.currency !== REPORTING_CURRENCY
+      ? values.billed
+      : null;
   const converted: CurrencyCode | undefined =
-    values.billed && isCurrencyCode(values.billed.currency) && values.billed.amount.trim() !== ""
-      ? values.billed.currency
+    billed && isCurrencyCode(billed.currency) && billed.amount.trim() !== ""
+      ? billed.currency
       : isCurrencyCode(values.currency)
         ? values.currency
         : undefined;
@@ -57,6 +61,7 @@ export function SettlementForm({
 
   const effective: SettlementFormValues = {
     ...values,
+    billed,
     settledOn: freshDate && !dateTouched ? localToday : values.settledOn,
     rate: values.rate && needsRate ? { ...values.rate, currency: converted } : null,
   };
