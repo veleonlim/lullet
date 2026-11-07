@@ -94,11 +94,10 @@ test.describe("login link", () => {
     await expect(page.getByRole("heading", { level: 1, name: "Sign in as Mei?" })).toBeVisible();
     await page.getByRole("button", { name: "Continue" }).click();
 
-    await expect(page).toHaveURL(`${baseURL}/`);
+    // The home page is the ledger: signing in lands on the expense list.
+    await expect(page).toHaveURL(`${baseURL}/expenses`);
     await expect(page.getByTestId("signed-in-as")).toHaveText("Mei");
-    await expect(page.getByRole("heading", { level: 1 })).toHaveText(
-      "Split the trip, not the friendship.",
-    );
+    await expect(page.getByRole("heading", { level: 1 })).toHaveText("Expenses");
 
     const cookies = await context.cookies();
     const session = cookies.find((c) => c.name === SESSION_COOKIE);
@@ -113,7 +112,7 @@ test.describe("login link", () => {
     await expect(page.getByTestId("signed-in-as")).toHaveText("Mei");
     // Already signed in: the sign-in page forwards to the app.
     await page.goto("/signin");
-    await expect(page).toHaveURL(`${baseURL}/`);
+    await expect(page).toHaveURL(`${baseURL}/expenses`);
   });
 
   test("the signed-in member can reach the members page and sees who is on the list", async ({

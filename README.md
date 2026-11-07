@@ -59,6 +59,8 @@ First time running end to end tests: `pnpm exec playwright install chromium`.
 
 `pnpm test:e2e` starts `pnpm dev` itself on port 3100 (or reuses a server already running there). With `CI=1` it serves the production build instead, so run `pnpm build` first. The suite uses its own database, `lullet_e2e`, created and migrated on the server `DATABASE_URL` points at, seeds the four ledger members (`src/db/seed-ids.ts`) and signs in through the real login-link flow, and its own made-up secrets and bot token; no real Telegram bot is involved.
 
+`pnpm db:seed` and the end to end suite empty and write ledger data, so they refuse to run unless the database host is local (`localhost`, `127.0.0.1` or `::1`); there is no override. See `assertLocalDatabase` in `src/db/seed.ts`.
+
 ## Continuous integration
 
 `.github/workflows/ci.yml` runs on every pull request and on pushes to `main`, as separate jobs:
