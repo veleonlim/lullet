@@ -1,0 +1,6 @@
+{
+  "recordedAt": "2026-11-07",
+  "url": "https://api.frankfurter.dev/v1/1990-01-01?base=EUR&symbols=SGD",
+  "status": 404,
+  "body": {"message":"not found"}
+}

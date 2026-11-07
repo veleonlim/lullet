@@ -1,0 +1,7 @@
+# no-mistakes pipeline commands. They point at the repo's own scripts so the
+# pipeline checks exactly what CI checks (see .github/workflows/ci.yml).
+commands:
+  # typecheck + eslint + prettier --check
+  lint: "pnpm check:static"
+  # unit and property tests; the Postgres integration and Playwright suites run in CI
+  test: "pnpm test"

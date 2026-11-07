@@ -1,0 +1,22 @@
+# Local development database. `docker compose up -d` then `pnpm db:migrate`.
+services:
+  postgres:
+    image: postgres:18
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: lullet
+      POSTGRES_PASSWORD: lullet
+      POSTGRES_DB: lullet
+    ports:
+      - "5432:5432"
+    volumes:
+      # Postgres 18 images keep versioned data under /var/lib/postgresql.
+      - lullet-pgdata:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U lullet -d lullet"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  lullet-pgdata:
