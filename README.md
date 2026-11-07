@@ -29,7 +29,7 @@ pnpm db:migrate               # apply migrations
 pnpm auth:bootstrap --group "Switzerland and Italy" \
   --member "Name=<telegram-user-id>" --member "Name=<telegram-user-id>"   # fill the allowlist
 pnpm dev                      # http://localhost:3000
-LULLET_ALLOW_LINK_MINT=1 pnpm auth:mint-link <telegram-user-id>          # a login link, without a bot
+pnpm auth:mint-link <telegram-user-id>   # a login link, without a bot
 ```
 
 Every page needs a signed-in member, so the app is only useful once the allowlist is filled in; see [Sign in with Telegram](#sign-in-with-telegram).
@@ -97,7 +97,7 @@ Only four allowlisted Telegram users can use the app (decision D3). Everyone els
 - **Mini App** (inside Telegram): the page reads the signed launch data (`tgWebAppData`) and posts it to `POST /api/auth/telegram`. The server checks it as Telegram documents ([Mini Apps: validating data](https://core.telegram.org/bots/webapps#validating-data-received-via-the-mini-app)): HMAC-SHA256 with the key `HMAC_SHA256("WebAppData", bot token)` over the sorted `key=value` fields, compared in constant time, and `auth_date` no older than one hour. The Telegram user id must then be on the allowlist.
 - **Browser**: the bot (a later task) sends a one-time link. `mintLoginLink(telegramUserId)` in `src/lib/auth/db/login-links.ts` is the function it calls; it returns `null` for anyone not on the allowlist, and otherwise a URL `APP_URL/signin/link/<token>`. The token is 256 random bits, stored only as an HMAC hash, valid for 10 minutes, and used up by one atomic conditional `UPDATE`, so it works once even under concurrent requests. Minting a new link withdraws the member's older unused one. Opening the link only shows a **Continue** button (`POST /api/auth/link` consumes it), because Telegram fetches URLs in messages to build previews and a plain GET would burn the link. The sign-in page tells people to send `/login` to the bot; that is the contract for the bot task.
 
-Until the bot exists, mint a link yourself: `LULLET_ALLOW_LINK_MINT=1 pnpm auth:mint-link <telegram-user-id>` prints the URL (guarded: it refuses without that variable, because the link signs in as that member; it works against production too if `DATABASE_URL`, `SESSION_SECRET` and `APP_URL` point there).
+Until the bot exists, mint a link yourself: `pnpm auth:mint-link <telegram-user-id>` prints the URL (it works against production too if `DATABASE_URL`, `SESSION_SECRET` and `APP_URL` point there).
 
 **Sessions** are server side (`sessions` table). The cookie `__Host-lullet_session` is `httpOnly`, `Secure`, `SameSite=Lax`, path `/`, and holds only a random token; the table stores its HMAC hash. A session lasts 30 days. Every login issues a new token and destroys the one the browser held (no session fixation); logout deletes the row, so a copied cookie stops working. A session also ends when the member leaves the group or the allowlist. The two cookie-setting POST routes refuse cross-site requests (`Sec-Fetch-Site` or `Origin`).
 
