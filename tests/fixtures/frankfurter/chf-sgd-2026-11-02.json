@@ -1,0 +1,6 @@
+{
+  "recordedAt": "2026-11-07",
+  "url": "https://api.frankfurter.dev/v1/2026-11-02?base=CHF&symbols=SGD",
+  "status": 200,
+  "body": {"amount":1.0,"base":"CHF","date":"2026-11-02","rates":{"SGD":1.5603}}
+}

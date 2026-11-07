@@ -1,0 +1,56 @@
+{
+  "name": "lullet",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Splitwise-like expense splitter for four people, first used on a trip to Switzerland and Italy.",
+  "type": "module",
+  "packageManager": "pnpm@12.18.0",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint .",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "check:static": "pnpm typecheck && pnpm lint && pnpm format:check",
+    "test": "vitest run --project unit",
+    "test:coverage": "vitest run --project unit --coverage",
+    "test:integration": "vitest run --project integration",
+    "test:e2e": "playwright test",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "drizzle-kit migrate",
+    "db:check": "drizzle-kit check"
+  },
+  "dependencies": {
+    "drizzle-orm": "0.45.4",
+    "next": "16.4.5",
+    "pg": "8.23.1",
+    "react": "19.3.1",
+    "react-dom": "19.3.1",
+    "zod": "4.6.7"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.65.0",
+    "@tailwindcss/postcss": "4.3.5",
+    "@types/node": "24.19.2",
+    "@types/pg": "8.23.1",
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
+    "@vitest/coverage-v8": "5.1.0",
+    "drizzle-kit": "0.31.11",
+    "eslint": "10.14.0",
+    "eslint-config-next": "16.4.5",
+    "fast-check": "4.10.2",
+    "prettier": "3.9.10",
+    "prettier-plugin-tailwindcss": "0.8.1",
+    "tailwindcss": "4.3.5",
+    "tsx": "4.23.15",
+    "typescript": "6.0.3",
+    "typescript-eslint": "8.72.1",
+    "vitest": "5.1.0"
+  }
+}

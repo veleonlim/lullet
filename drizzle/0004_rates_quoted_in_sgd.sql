@@ -1,0 +1,2 @@
+ALTER TABLE "daily_rates" ADD CONSTRAINT "daily_rates_quote_check" CHECK ("daily_rates"."quote" = 'SGD');--> statement-breakpoint
+ALTER TABLE "fx_rates" ADD CONSTRAINT "fx_rates_quote_check" CHECK ("fx_rates"."quote" = 'SGD');

@@ -1,0 +1,59 @@
+import { sql } from "drizzle-orm";
+import { bigint, check, pgTable, smallint, text, unique, uuid } from "drizzle-orm/pg-core";
+import { timestamptz } from "./_shared";
+
+export const users = pgTable("users", {
+  id: uuid().primaryKey().defaultRandom(),
+  displayName: text().notNull(),
+  createdAt: timestamptz("created_at").notNull().defaultNow(),
+  updatedAt: timestamptz("updated_at").notNull().defaultNow(),
+});
+
+export const groups = pgTable("groups", {
+  id: uuid().primaryKey().defaultRandom(),
+  name: text().notNull(),
+  createdAt: timestamptz("created_at").notNull().defaultNow(),
+  updatedAt: timestamptz("updated_at").notNull().defaultNow(),
+});
+
+/**
+ * Who is in a group. `position` is the group's fixed member order: it decides who
+ * gets the spare cent when an amount does not divide evenly, so it must be stable.
+ */
+export const memberships = pgTable(
+  "memberships",
+  {
+    id: uuid().primaryKey().defaultRandom(),
+    groupId: uuid("group_id")
+      .notNull()
+      .references(() => groups.id),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id),
+    position: smallint().notNull(),
+    createdAt: timestamptz("created_at").notNull().defaultNow(),
+  },
+  (t) => [
+    // Also the target of composite foreign keys that prove a user belongs to the group.
+    unique("memberships_group_user_key").on(t.groupId, t.userId),
+    unique("memberships_group_position_key").on(t.groupId, t.position),
+    check("memberships_position_check", sql`${t.position} >= 0`),
+  ],
+);
+
+/** Links an app user to a Telegram identity (the sign-in method, and where the bot replies). */
+export const telegramLinks = pgTable(
+  "telegram_links",
+  {
+    id: uuid().primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .unique()
+      .references(() => users.id),
+    telegramUserId: bigint("telegram_user_id", { mode: "number" }).notNull().unique(),
+    privateChatId: bigint("private_chat_id", { mode: "number" }),
+    username: text(),
+    linkedAt: timestamptz("linked_at").notNull().defaultNow(),
+  },
+  (t) => [check("telegram_links_ids_check", sql`${t.telegramUserId} > 0`)],
+);
