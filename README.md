@@ -54,7 +54,7 @@ First time running end to end tests: `pnpm exec playwright install chromium`.
 | `pnpm db:migrate`              | Apply migrations to `DATABASE_URL_UNPOOLED` or `DATABASE_URL`                                   |
 | `pnpm db:check`                | Verify the migration history is consistent                                                      |
 
-`pnpm test:e2e` starts `pnpm dev` itself (or reuses a running server) with the development sign-in switched on. With `CI=1` it serves the production build instead, so run `pnpm build` first. The suite runs one test at a time against one database and empties the ledger before each test, so point it at a development database.
+`pnpm test:e2e` starts `pnpm dev` itself (or reuses a running server) with the development sign-in switched on. With `CI=1` it serves the production build instead, so run `pnpm build` first. The suite runs one test at a time against one database and empties the ledger before each test. It, and `pnpm db:seed --reset`, refuse to run unless the database host is local.
 
 ## Continuous integration
 

@@ -25,7 +25,7 @@ export async function prepareDatabase(): Promise<void> {
 export async function resetLedgerData(): Promise<void> {
   const { db, pool } = createDatabase({ connectionString: connectionString(), max: 1 });
   try {
-    await resetLedger(db);
+    await resetLedger(db, connectionString());
   } finally {
     await pool.end();
   }

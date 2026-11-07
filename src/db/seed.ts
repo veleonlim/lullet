@@ -59,12 +59,31 @@ export async function seedDevelopmentData(db: Database): Promise<void> {
   await db.insert(s.fxRates).values(rows).onConflictDoNothing();
 }
 
+const LOCAL_HOSTS = new Set(["localhost", "127.0.0.1", "::1", "[::1]"]);
+
+/** True only when the connection string names a local host (the CI service container is localhost). */
+export function isLocalDatabaseUrl(connectionString: string): boolean {
+  try {
+    const url = new URL(connectionString);
+    return !url.searchParams.has("host") && LOCAL_HOSTS.has(url.hostname.toLowerCase());
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Removes every expense, settlement, audit entry and day rate (keeps people and market
  * rates) so a test or a demo starts from an empty ledger. TRUNCATE skips the row triggers
  * that make these tables append only, which is what makes a reset possible at all.
+ * It refuses any database whose host is not local, so it can never wipe a shared ledger.
  */
-export async function resetLedger(db: Database): Promise<void> {
+export async function resetLedger(db: Database, connectionString: string): Promise<void> {
+  if (!isLocalDatabaseUrl(connectionString)) {
+    throw new Error(
+      "Refusing to reset the ledger: the database host is not local (localhost, 127.0.0.1 or ::1). " +
+        "Point DATABASE_URL at a local development database.",
+    );
+  }
   await db.execute(
     sql`TRUNCATE TABLE expense_payers, expense_shares, expenses, settlements, audit_log, daily_rates RESTART IDENTITY CASCADE`,
   );
