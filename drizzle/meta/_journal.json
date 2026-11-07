@@ -43,6 +43,13 @@
       "when": 1794061734044,
       "tag": "0005_telegram_auth",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1794069875883,
+      "tag": "0006_screenshot_import_drafts",
+      "breakpoints": true
     }
   ]
 }

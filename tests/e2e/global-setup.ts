@@ -13,8 +13,11 @@ export default async function globalSetup(): Promise<void> {
   const admin = new Client({ connectionString: adminUrl });
   await admin.connect();
   try {
-    const exists = await admin.query("SELECT 1 FROM pg_database WHERE datname = 'lullet_e2e'");
-    if (exists.rowCount === 0) await admin.query("CREATE DATABASE lullet_e2e");
+    const name = process.env.E2E_DATABASE_NAME ?? "lullet_e2e";
+    if (!/^[a-z0-9_]+$/.test(name))
+      throw new Error("E2E_DATABASE_NAME must be lowercase letters, digits and underscores");
+    const exists = await admin.query("SELECT 1 FROM pg_database WHERE datname = $1", [name]);
+    if (exists.rowCount === 0) await admin.query(`CREATE DATABASE ${name}`);
   } finally {
     await admin.end();
   }

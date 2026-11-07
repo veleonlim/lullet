@@ -15,6 +15,10 @@ export const AUDIT_ACTIONS = [
   "settlement.create",
   "settlement.delete",
   "settlement.restore",
+  "import.confirm",
+  "import.undo",
+  "import.cancel",
+  "import.image_deleted",
 ] as const;
 export type AuditAction = (typeof AUDIT_ACTIONS)[number];
 
@@ -184,6 +188,14 @@ export function auditActionLabel(action: string): string {
       return "Deleted a settlement";
     case "settlement.restore":
       return "Restored a settlement";
+    case "import.confirm":
+      return "Added from a screenshot";
+    case "import.undo":
+      return "Undid a screenshot import";
+    case "import.cancel":
+      return "Discarded a screenshot import";
+    case "import.image_deleted":
+      return "Deleted the original screenshot";
     default:
       return action;
   }

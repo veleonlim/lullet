@@ -26,9 +26,12 @@
     "db:check": "drizzle-kit check",
     "db:seed": "tsx scripts/seed.ts",
     "auth:bootstrap": "node --env-file-if-exists=.env --import tsx scripts/bootstrap-group.ts",
+    "eval:screenshots": "node --env-file-if-exists=.env --import tsx scripts/eval-screenshots.ts",
     "auth:mint-link": "node --env-file-if-exists=.env --import tsx scripts/mint-login-link.ts"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "1.6.0",
+    "@aws-sdk/client-s3": "3.1158.0",
     "drizzle-orm": "0.45.4",
     "next": "16.4.5",
     "pg": "8.23.1",

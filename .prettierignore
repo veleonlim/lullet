@@ -6,3 +6,7 @@ test-results
 pnpm-lock.yaml
 drizzle/meta
 tests/fixtures
+
+# Local agent settings (never committed)
+.claude/
+.data/

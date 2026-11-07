@@ -148,6 +148,16 @@ export default async function ExpenseDetailPage({ params }: { params: Promise<{ 
             <LocalTime iso={expense.createdAt.toISOString()} className="text-muted" />
           </span>
         </p>
+        {expense.importId ? (
+          <Link
+            href={route(`/imports/${expense.importId}`)}
+            data-testid="from-import"
+            className="flex min-h-12 items-center justify-between gap-4 px-4 py-3 font-medium text-accent hover:bg-surface-muted"
+          >
+            <span>From a screenshot import</span>
+            <span className="text-muted">View the original</span>
+          </Link>
+        ) : null}
         {expense.updatedAt.getTime() !== expense.createdAt.getTime() ? (
           <p className="flex items-center justify-between gap-4 px-4 py-3">
             <span className="text-muted">Last changed</span>

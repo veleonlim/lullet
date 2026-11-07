@@ -1,3 +1,4 @@
+import path from "node:path";
 import { defineConfig, devices } from "@playwright/test";
 
 // A dedicated port, so a `pnpm dev` server on 3000 is never mistaken for the test server.
@@ -10,13 +11,23 @@ const isCI = Boolean(process.env.CI);
 // tests sign their own Mini App init data with this made-up token.
 const adminDatabaseUrl =
   process.env.DATABASE_URL ?? "postgres://lullet:lullet@localhost:5432/lullet";
+// E2E_DATABASE_NAME lets two checkouts on one machine run the suite at the same time.
+const e2eDatabaseName = process.env.E2E_DATABASE_NAME ?? "lullet_e2e";
 const e2eDatabaseUrl = new URL(adminDatabaseUrl);
-e2eDatabaseUrl.pathname = "/lullet_e2e";
+e2eDatabaseUrl.pathname = `/${e2eDatabaseName}`;
 process.env.E2E_ADMIN_DATABASE_URL = adminDatabaseUrl;
 process.env.E2E_DATABASE_URL = e2eDatabaseUrl.toString();
+process.env.E2E_DATABASE_NAME = e2eDatabaseName;
 process.env.SESSION_SECRET = "e2e-session-secret-0123456789abcdefghijklmnop";
 process.env.TELEGRAM_BOT_TOKEN = "123456:TEST-bot-token-for-lullet-tests-only";
 process.env.APP_URL = baseURL;
+
+// Screenshot import: the model is replaced by canned answers (one JSON file per image hash, written
+// by the tests) and originals are kept in a local folder. Nothing here calls Claude or Cloudflare.
+const e2eDataDir = path.resolve(".data", "e2e", String(port));
+process.env.E2E_STUB_DIR = path.join(e2eDataDir, "stub");
+process.env.E2E_STORAGE_DIR = path.join(e2eDataDir, "screenshots");
+process.env.E2E_CRON_SECRET = "e2e-cron-secret-0123456789";
 
 export default defineConfig({
   testDir: "./tests/e2e",
@@ -47,6 +58,11 @@ export default defineConfig({
       TELEGRAM_BOT_TOKEN: process.env.TELEGRAM_BOT_TOKEN,
       APP_URL: baseURL,
       LULLET_DEV_AUTH: "1",
+      LULLET_EXTRACTOR: "stub",
+      LULLET_STUB_DIR: process.env.E2E_STUB_DIR,
+      LULLET_STORAGE: "local",
+      LULLET_STORAGE_DIR: process.env.E2E_STORAGE_DIR,
+      CRON_SECRET: process.env.E2E_CRON_SECRET,
     },
     reuseExistingServer: !isCI,
     timeout: 120_000,

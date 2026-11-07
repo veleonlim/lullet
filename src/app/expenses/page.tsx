@@ -51,11 +51,20 @@ export default async function ExpensesPage({
       <PageHeader
         title="Expenses"
         actions={
-          <ButtonLink href="/expenses/new" variant="primary">
-            Add expense
-          </ButtonLink>
+          <div className="flex gap-2">
+            <ButtonLink href="/imports/new" variant="secondary">
+              Import screenshot
+            </ButtonLink>
+            <ButtonLink href="/expenses/new" variant="primary">
+              Add expense
+            </ButtonLink>
+          </div>
         }
       />
+
+      <ButtonLink href="/imports/new" variant="secondary" className="w-full sm:hidden">
+        Import a screenshot
+      </ButtonLink>
 
       {removed?.deletedAt ? (
         <Notice

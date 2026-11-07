@@ -2,7 +2,7 @@
 
 Europe Split: a Splitwise-like expense splitter for four people (the requester, their girlfriend and their parents), first used on a trip to Switzerland and Italy.
 
-Telegram is the capture and edit surface; this web app is the database and dashboard. This repository holds the foundation (app skeleton, database schema, the money and ledger library, the quality gates), Telegram sign-in, and the web ledger: expense list, add and edit, soft delete and restore, history, balances and settle-up. Later slices add the Telegram bot, screenshot import and the dashboard.
+Telegram is the capture and edit surface; this web app is the database and dashboard. This repository holds the foundation (app skeleton, database schema, the money and ledger library, the quality gates), Telegram sign-in, the web ledger (expense list, add and edit, soft delete and restore, history, balances and settle-up) and the screenshot import (upload, read by Claude, review, confirm, undo). Later slices add the Telegram bot and the dashboard.
 
 ## Stack
 
@@ -39,25 +39,26 @@ First time running end to end tests: `pnpm exec playwright install chromium`.
 
 ## Scripts
 
-| Script                         | What it does                                                                                                                        |
-| ------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------- |
-| `pnpm dev` / `build` / `start` | Next.js development server, production build, production server                                                                     |
-| `pnpm check:static`            | typecheck, ESLint and Prettier check (what `.no-mistakes.yaml` runs as `lint`)                                                      |
-| `pnpm typecheck`               | `tsc --noEmit`                                                                                                                      |
-| `pnpm lint`                    | ESLint                                                                                                                              |
-| `pnpm format` / `format:check` | Prettier write / check                                                                                                              |
-| `pnpm test`                    | Unit and property tests (no external services; what `.no-mistakes.yaml` runs as `test`)                                             |
-| `pnpm test:coverage`           | Same, with coverage thresholds on `src/lib`                                                                                         |
-| `pnpm test:integration`        | Integration tests against real Postgres; needs `DATABASE_URL`                                                                       |
-| `pnpm test:e2e`                | Playwright on a phone and a desktop viewport; needs Postgres (`DATABASE_URL`)                                                       |
-| `pnpm db:seed`                 | Create a dev group with four members linked to Telegram ids 5100001 to 5100004; `--reset` empties the ledger, `--demo` adds samples |
-| `pnpm auth:bootstrap`          | Create the group and link its members to Telegram accounts (once)                                                                   |
-| `pnpm auth:mint-link`          | Print a one-time browser login link for a member                                                                                    |
-| `pnpm db:generate`             | Generate a migration from schema changes                                                                                            |
-| `pnpm db:migrate`              | Apply migrations to `DATABASE_URL_UNPOOLED` or `DATABASE_URL`                                                                       |
-| `pnpm db:check`                | Verify the migration history is consistent                                                                                          |
+| Script                         | What it does                                                                                                                                       |
+| ------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `pnpm dev` / `build` / `start` | Next.js development server, production build, production server                                                                                    |
+| `pnpm check:static`            | typecheck, ESLint and Prettier check (what `.no-mistakes.yaml` runs as `lint`)                                                                     |
+| `pnpm typecheck`               | `tsc --noEmit`                                                                                                                                     |
+| `pnpm lint`                    | ESLint                                                                                                                                             |
+| `pnpm format` / `format:check` | Prettier write / check                                                                                                                             |
+| `pnpm test`                    | Unit and property tests (no external services; what `.no-mistakes.yaml` runs as `test`)                                                            |
+| `pnpm test:coverage`           | Same, with coverage thresholds on `src/lib`                                                                                                        |
+| `pnpm test:integration`        | Integration tests against real Postgres; needs `DATABASE_URL`                                                                                      |
+| `pnpm test:e2e`                | Playwright on a phone and a desktop viewport; needs Postgres (`DATABASE_URL`)                                                                      |
+| `pnpm db:seed`                 | Create a dev group with four members linked to Telegram ids 5100001 to 5100004; `--reset` empties the ledger, `--demo` adds samples                |
+| `pnpm eval:screenshots`        | Manual accuracy eval of the screenshot reader against the live Claude API (needs `ANTHROPIC_API_KEY`; see [Screenshot import](#screenshot-import)) |
+| `pnpm auth:bootstrap`          | Create the group and link its members to Telegram accounts (once)                                                                                  |
+| `pnpm auth:mint-link`          | Print a one-time browser login link for a member                                                                                                   |
+| `pnpm db:generate`             | Generate a migration from schema changes                                                                                                           |
+| `pnpm db:migrate`              | Apply migrations to `DATABASE_URL_UNPOOLED` or `DATABASE_URL`                                                                                      |
+| `pnpm db:check`                | Verify the migration history is consistent                                                                                                         |
 
-`pnpm test:e2e` starts `pnpm dev` itself on port 3100 (or reuses a server already running there). With `CI=1` it serves the production build instead, so run `pnpm build` first. The suite uses its own database, `lullet_e2e`, created and migrated on the server `DATABASE_URL` points at, seeds the four ledger members (`src/db/seed-ids.ts`) and signs in through the real login-link flow, and its own made-up secrets and bot token; no real Telegram bot is involved.
+`pnpm test:e2e` starts `pnpm dev` itself on port 3100 (or reuses a server already running there). With `CI=1` it serves the production build instead, so run `pnpm build` first. The suite uses its own database, `lullet_e2e` (set `E2E_DATABASE_NAME` to run two checkouts at once), created and migrated on the server `DATABASE_URL` points at, seeds the four ledger members (`src/db/seed-ids.ts`) and signs in through the real login-link flow, and its own made-up secrets and bot token; no real Telegram bot is involved.
 
 `pnpm db:seed` and the end to end suite empty and write ledger data, so they refuse to run unless the database host is local (`localhost`, `127.0.0.1` or `::1`); there is no override. See `assertLocalDatabase` in `src/db/seed.ts`.
 
@@ -77,18 +78,21 @@ No job calls a live external service; exchange rate tests replay recorded respon
 
 `.env.example` lists every variable, with the ones not needed yet as commented placeholders. Secrets come only from the environment (Vercel project settings in production, `.env` locally, never committed). Nothing external has been created yet: the accounts and keys below are owned by the captain and are set up when the slice that needs them starts. Tests never need a real bot or real secrets.
 
-| Variable                                                               | Needed by | What it is                                                                                               |
-| ---------------------------------------------------------------------- | --------- | -------------------------------------------------------------------------------------------------------- |
-| `DATABASE_URL`                                                         | now       | Postgres connection. In production, Neon's pooled connection string                                      |
-| `DATABASE_URL_UNPOOLED`                                                | now       | Optional. Neon's direct connection, preferred for migrations                                             |
-| `DATABASE_POOL_MAX`                                                    | now       | Optional. Connections per instance, default 5; use 1 on serverless                                       |
-| `SESSION_SECRET`                                                       | now       | At least 32 characters. Keys the hash of session cookies and login links; changing it signs everyone out |
-| `APP_URL`                                                              | now       | Public origin (`https://...`), used to build login links. Required in production                         |
-| `TELEGRAM_BOT_TOKEN`                                                   | now       | Bot token from BotFather. Verifies Mini App sign-in; also used by the bot (slice 3)                      |
-| `TELEGRAM_WEBHOOK_SECRET`                                              | slice 3   | Secret token checked on every webhook call                                                               |
-| `ANTHROPIC_API_KEY`                                                    | slice 4   | Claude Console API key for screenshot extraction                                                         |
-| `S3_ENDPOINT`, `S3_BUCKET`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY` | slice 4   | Cloudflare R2 (S3 compatible) private bucket for original screenshots                                    |
-| `CRON_SECRET`                                                          | slice 7   | Protects scheduled jobs such as the 30 day screenshot deletion                                           |
+| Variable                                                               | Needed by | What it is                                                                                                                                                                   |
+| ---------------------------------------------------------------------- | --------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `DATABASE_URL`                                                         | now       | Postgres connection. In production, Neon's pooled connection string                                                                                                          |
+| `DATABASE_URL_UNPOOLED`                                                | now       | Optional. Neon's direct connection, preferred for migrations                                                                                                                 |
+| `DATABASE_POOL_MAX`                                                    | now       | Optional. Connections per instance, default 5; use 1 on serverless                                                                                                           |
+| `SESSION_SECRET`                                                       | now       | At least 32 characters. Keys the hash of session cookies and login links; changing it signs everyone out                                                                     |
+| `APP_URL`                                                              | now       | Public origin (`https://...`), used to build login links. Required in production                                                                                             |
+| `TELEGRAM_BOT_TOKEN`                                                   | now       | Bot token from BotFather. Verifies Mini App sign-in; also used by the bot (slice 3)                                                                                          |
+| `TELEGRAM_WEBHOOK_SECRET`                                              | slice 3   | Secret token checked on every webhook call                                                                                                                                   |
+| `ANTHROPIC_API_KEY`                                                    | now       | Claude Console API key for screenshot reading, read only from the environment. Without it every upload becomes an empty draft to fill in by hand                             |
+| `S3_ENDPOINT`, `S3_BUCKET`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY` | now       | Cloudflare R2 (S3 compatible) private bucket for original screenshots. Required in production; in development files go to `LULLET_STORAGE_DIR` (default `.data/screenshots`) |
+| `CRON_SECRET`                                                          | now       | Bearer secret for the scheduled clean-up at `/api/cron/retention` (Vercel Cron sends it). With none set the route refuses every call                                         |
+| `IMPORT_DAILY_LIMIT`                                                   | now       | Optional. Screenshots one person may upload per rolling day, default 30                                                                                                      |
+| `LULLET_STORAGE`, `LULLET_STORAGE_DIR`                                 | tests     | `LULLET_STORAGE=local` allows local-file storage in a production build (the end to end suite uses it)                                                                        |
+| `LULLET_EXTRACTOR`, `LULLET_STUB_DIR`                                  | tests     | `LULLET_EXTRACTOR=stub` answers from canned JSON files instead of calling Claude (the end to end suite uses it)                                                              |
 
 ## Sign in with Telegram
 
@@ -153,19 +157,38 @@ Routes: `/expenses` (list grouped by day, newest first, with a Deleted filter), 
 - **Soft delete and audit**: deleting only marks the row; every create, edit, delete and restore (expenses and settlements) writes an `audit_log` row in the same transaction, with the before and after, and the history page reads it back. Edits carry the version that was loaded, so overwriting someone else's change is refused.
 - **Data access**: pages and server actions get the caller from `getSession()` and the ledger only from `openStore()` (`src/server/runtime.ts`, which sends a caller without a live session to `/signin`), which wraps the group-scoped store in `src/server/ledger/store.ts`. Every query there filters by the session's group (child tables and the audit log included), a user outside the group is refused, and ESLint stops `src/app` and `src/components` from importing the database. `tests/integration/ledger-scoping.test.ts` drives every store method with another group's ids and fails to compile when a method has no probe.
 
+## Screenshot import
+
+The four agreed steps: upload a screenshot, have it read into one row per payment (with a category), choose who paid (everyone else shares equally by default), then check, change and confirm. Nothing reaches the ledger until the uploader confirms. Code: `src/lib/import` (pure logic), `src/server/import` (storage, model, data access, jobs), `src/components/import` and the `/imports` pages and `/api/imports` routes.
+
+**Upload** (`/imports/new`, `POST /api/imports`). Phone friendly. The server looks at the real bytes (PNG, JPEG or WebP; never the file name), caps the file at 4 MB (Vercel's body limit is 4.5 MB; large camera photos are shrunk in the browser first), limits each person to 30 uploads a rolling day, removes all metadata (EXIF with GPS and camera details, XMP, text chunks, comments; the pixels are not re-encoded), and takes the SHA-256 of what is stored. The same image (or the same one with different metadata) is rejected as already imported before any model call. Originals live behind the `ImageStorage` interface: Cloudflare R2 (`S3Storage`) in production, local files (`LocalFileStorage`) in development and tests. The bucket is never public and no signed link is handed out: `GET /api/imports/[id]/image` serves the bytes to signed-in members of the group.
+
+**Reading.** `AnthropicExtractor` sends one request to `claude-haiku-5-5` with the official SDK: the image and a short prompt, no tools, the answer constrained by a JSON schema (`output_config.format`) and validated again with zod. The screenshot is treated as untrusted data. Amounts come back as the text shown on screen plus the model's own reading; our code re-parses the text with the money library and flags any disagreement, never fixes silently, and never guesses a currency (no visible currency means "needs input"). A refusal, a `max_tokens` stop or a reply that is not exactly the agreed shape gives an empty draft ("enter manually"), never a partial import. "Re-read" asks `claude-sonnet-5-5` (twice at most per screenshot) and replaces the rows; a failed re-read changes nothing. The API key is read only from `ANTHROPIC_API_KEY`.
+
+**Drafts** live in `imports` and `import_rows`, which balances and the dashboard never read. A draft expires 24 hours after upload, or at once on Cancel. Each field of a row is `clear`, `uncertain` ("check", dotted underline), `guessed` (a date the model inferred, a category it was unsure of, shown as "check" too) or `unreadable` ("needs input", the row starts unticked and blocks Confirm until filled in or left unticked). Editing a field clears its doubt. Duplicates are caught in three layers: the same image hash, the same transaction (amount and currency, day within one, fuzzy merchant) against the ledger, and the same check against other open drafts, which also catches two overlapping scrolled screenshots. A match is flagged and unticked, never dropped. The payer is not required to match (the same bill entered by one person and screenshotted by another is the case worth catching); a matching payer only ranks higher.
+
+**Review** (`/imports/[id]`). Paid by (the uploader by default, several payers split each payment equally), the payer's own share as a switch (off by default), Equal or Percent for the whole batch, and per row: tick or untick, member chips (tap Jamie off one row), category, description, date, amount, currency, billed amount, and its own Equal or Percent split. Totals per person and per currency update live, with a sum check against any total printed on the screenshot. Edits are saved as you go. "Review and add" opens "Confirm or make changes"; "OK, add to ledger" adds the ticked rows. Other members can look at a draft but only the uploader can change, confirm, undo or discard it.
+
+**Confirm** is one transaction: it locks the import, adds every ticked row through the ledger's own insert (so each expense gets its audit row and its exchange rate handling), links each expense to its import row and writes an `import.confirm` audit entry. It is idempotent (a second confirm, or two at once, adds nothing more). If an exchange rate cannot be fetched the expense is still added and shows "No rate" until one is set. **Undo import** soft deletes the whole batch in one transaction (`import.undo`).
+
+**Retention.** Originals are deleted 30 days after confirmation (immediately for cancelled and expired drafts); the extracted rows stay. `GET /api/cron/retention` (guarded by `CRON_SECRET`, scheduled in `vercel.json`) also expires drafts that ran out of time. It is safe to run twice, and one failing image never stops the rest.
+
+**Tests.** Contract tests drive the extractor with hand-built Messages API responses (clean, ambiguous, refused, cut off, malformed, an injection attempt) and make no network call. Integration tests cover drafts, duplicates, confirm, undo, permissions, expiry and retention against real Postgres; Playwright covers upload, editing a row (remove Jamie), confirm, Cancel, duplicate re-upload and a non-uploader trying to confirm, on a phone and a desktop viewport with the model replaced by `LULLET_EXTRACTOR=stub`. The accuracy eval is manual: put redacted screenshots and golden files in a folder and run `pnpm eval:screenshots <folder>` (format in `scripts/eval-screenshots.ts`); it prints per-field accuracy and "silent errors" for Haiku and Sonnet side by side, and does nothing without an API key.
+
 ## Layout
 
 ```
-src/app            Next.js routes: (app) pages that need a session, expenses, balances, settlements, /signin, /api/auth, /api/health, server actions
+src/app            Next.js routes: (app) pages that need a session, expenses, balances, settlements, /imports, /signin, /api/auth, /api/imports, /api/cron, /api/health, server actions
 src/proxy.ts       First gate: no session cookie, no protected page
-src/components     UI building blocks (app shell, forms, rows, icons)
+src/components     UI building blocks (app shell, forms, rows, icons); import/ holds the upload and review screens
 src/db             Drizzle schema, client, migration runner and the dev seed
 src/lib/auth       Telegram sign-in: init data check, login links, sessions (db/ holds the database code), getSession
 src/lib/ledger     Pure ledger logic: form validation, pricing, balances, audit diffs, formatting
 src/lib/money      Money and ledger library
 src/lib/fx         Exchange rate client
-src/server         Group-scoped data access layer and per-request store
-scripts            db:seed, auth:bootstrap and auth:mint-link
+src/lib/import     Screenshot import logic: image checks, extraction schema, doubt states, duplicates, splits, drafts
+src/server         Group-scoped data access layer and per-request store; import/ holds screenshot storage, the model client, drafts and the retention job
+scripts            db:seed, auth:bootstrap, auth:mint-link and eval:screenshots
 src/test-support   Shared test generators
 tests/integration  Postgres integration tests
 tests/e2e          Playwright specs

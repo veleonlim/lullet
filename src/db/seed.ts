@@ -101,6 +101,6 @@ export async function seedDevelopmentData(db: Database, connectionString: string
 export async function resetLedger(db: Database, connectionString: string): Promise<void> {
   assertLocalDatabase(connectionString, "reset the ledger");
   await db.execute(
-    sql`TRUNCATE TABLE expense_payers, expense_shares, expenses, settlements, audit_log, daily_rates RESTART IDENTITY CASCADE`,
+    sql`TRUNCATE TABLE expense_payers, expense_shares, expenses, settlements, import_rows, imports, audit_log, daily_rates RESTART IDENTITY CASCADE`,
   );
 }
