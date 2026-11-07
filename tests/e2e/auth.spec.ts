@@ -33,6 +33,16 @@ test.describe("signed out", () => {
     await expect(page.getByRole("heading", { level: 2, name: "Coming next" })).toHaveCount(0);
   });
 
+  test("the retired LULLET_DEV_AUTH flag, set on the test server, signs nobody in", async ({
+    page,
+    request,
+  }) => {
+    await page.goto("/expenses");
+    await expect(page).toHaveURL(/\/signin\?next=%2Fexpenses$/);
+    await expect(page.getByTestId("signed-in-as")).toHaveCount(0);
+    expect((await request.get("/api/anything", { maxRedirects: 0 })).status()).toBe(401);
+  });
+
   test("API routes answer 401 and the health probe stays public", async ({ request }) => {
     const denied = await request.get("/api/anything", { maxRedirects: 0 });
     expect(denied.status()).toBe(401);

@@ -1,10 +1,13 @@
-import { expect, test, type Page } from "@playwright/test";
+import { type Page } from "@playwright/test";
+import { expect, ledgerTest as test } from "./fixtures";
 import {
   addExpense,
   expectNoSidewaysScroll,
   fillExpenseForm,
   readBalances,
 } from "./support/ledger-page";
+import { SEED_MEMBERS } from "@/db/seed-ids";
+import { signInWithLink } from "./support/auth";
 import { resetLedgerData } from "./support/database";
 
 // Seeded exchange rates (src/db/seed.ts): S$1.50 per EUR and S$1.60 per CHF on every trip day.
@@ -294,6 +297,12 @@ test.describe("editing", () => {
 
     // Someone else edits the same expense in the meantime.
     const other = await browser.newPage({ baseURL: page.url().split("/expenses")[0] });
+    const [, jamie] = SEED_MEMBERS;
+    await signInWithLink(other, {
+      name: jamie.displayName,
+      telegramId: jamie.telegramUserId,
+      userId: jamie.id,
+    });
     await other.goto(page.url());
     await other.getByLabel("Description").fill("Lunch (theirs)");
     await other.getByRole("button", { name: "Save changes" }).click();

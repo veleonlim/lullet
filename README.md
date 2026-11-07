@@ -2,7 +2,7 @@
 
 Europe Split: a Splitwise-like expense splitter for four people (the requester, their girlfriend and their parents), first used on a trip to Switzerland and Italy.
 
-Telegram is the capture and edit surface; this web app is the database and dashboard. This repository holds slice 1 (the foundation: app skeleton, database schema, the money and ledger library, the quality gates) and the web ledger: expense list, add and edit, soft delete and restore, history, balances and settle-up. Later slices add sign-in, the Telegram bot, screenshot import and the dashboard.
+Telegram is the capture and edit surface; this web app is the database and dashboard. This repository holds the foundation (app skeleton, database schema, the money and ledger library, the quality gates), Telegram sign-in, and the web ledger: expense list, add and edit, soft delete and restore, history, balances and settle-up. Later slices add the Telegram bot, screenshot import and the dashboard.
 
 ## Stack
 
@@ -26,35 +26,38 @@ pnpm install
 cp .env.example .env          # local settings; never commit .env
 docker compose up -d          # Postgres 18 on localhost:5432
 pnpm db:migrate               # apply migrations
-pnpm db:seed --demo           # four members, one trip group, stand-in rates and sample expenses
-echo LULLET_DEV_AUTH=1 >> .env   # sign in as the first seeded member (development only)
+pnpm auth:bootstrap --group "Switzerland and Italy" \
+  --member "Name=<telegram-user-id>" --member "Name=<telegram-user-id>"   # fill the allowlist
+pnpm db:seed --demo           # optional: dev group (Telegram ids 5100001 to 5100004), stand-in rates, sample expenses
 pnpm dev                      # http://localhost:3000
 pnpm auth:mint-link <telegram-user-id>   # a login link, without a bot
 ```
 
-Until Telegram sign-in lands, `getSession()` (`src/lib/auth/session.ts`) returns the first seeded member, and only when `LULLET_DEV_AUTH=1`. It never signs anyone in on a production build, on Vercel production or preview; the Playwright config is the only place that serves a production build with it (`LULLET_E2E=1`).
+Every page needs a signed-in member, so the app is only useful once the allowlist is filled in; see [Sign in with Telegram](#sign-in-with-telegram).
 
 First time running end to end tests: `pnpm exec playwright install chromium`.
 
 ## Scripts
 
-| Script                         | What it does                                                                                    |
-| ------------------------------ | ----------------------------------------------------------------------------------------------- |
-| `pnpm dev` / `build` / `start` | Next.js development server, production build, production server                                 |
-| `pnpm check:static`            | typecheck, ESLint and Prettier check (what `.no-mistakes.yaml` runs as `lint`)                  |
-| `pnpm typecheck`               | `tsc --noEmit`                                                                                  |
-| `pnpm lint`                    | ESLint                                                                                          |
-| `pnpm format` / `format:check` | Prettier write / check                                                                          |
-| `pnpm test`                    | Unit and property tests (no external services; what `.no-mistakes.yaml` runs as `test`)         |
-| `pnpm test:coverage`           | Same, with coverage thresholds on `src/lib`                                                     |
-| `pnpm test:integration`        | Integration tests against real Postgres; needs `DATABASE_URL`                                   |
-| `pnpm test:e2e`                | Playwright on a phone and a desktop viewport; needs `DATABASE_URL` (migrates and seeds)         |
-| `pnpm db:seed`                 | Create the four members and the trip group; `--reset` empties the ledger, `--demo` adds samples |
-| `pnpm db:generate`             | Generate a migration from schema changes                                                        |
-| `pnpm db:migrate`              | Apply migrations to `DATABASE_URL_UNPOOLED` or `DATABASE_URL`                                   |
-| `pnpm db:check`                | Verify the migration history is consistent                                                      |
+| Script                         | What it does                                                                                                                        |
+| ------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------- |
+| `pnpm dev` / `build` / `start` | Next.js development server, production build, production server                                                                     |
+| `pnpm check:static`            | typecheck, ESLint and Prettier check (what `.no-mistakes.yaml` runs as `lint`)                                                      |
+| `pnpm typecheck`               | `tsc --noEmit`                                                                                                                      |
+| `pnpm lint`                    | ESLint                                                                                                                              |
+| `pnpm format` / `format:check` | Prettier write / check                                                                                                              |
+| `pnpm test`                    | Unit and property tests (no external services; what `.no-mistakes.yaml` runs as `test`)                                             |
+| `pnpm test:coverage`           | Same, with coverage thresholds on `src/lib`                                                                                         |
+| `pnpm test:integration`        | Integration tests against real Postgres; needs `DATABASE_URL`                                                                       |
+| `pnpm test:e2e`                | Playwright on a phone and a desktop viewport; needs Postgres (`DATABASE_URL`)                                                       |
+| `pnpm db:seed`                 | Create a dev group with four members linked to Telegram ids 5100001 to 5100004; `--reset` empties the ledger, `--demo` adds samples |
+| `pnpm auth:bootstrap`          | Create the group and link its members to Telegram accounts (once)                                                                   |
+| `pnpm auth:mint-link`          | Print a one-time browser login link for a member                                                                                    |
+| `pnpm db:generate`             | Generate a migration from schema changes                                                                                            |
+| `pnpm db:migrate`              | Apply migrations to `DATABASE_URL_UNPOOLED` or `DATABASE_URL`                                                                       |
+| `pnpm db:check`                | Verify the migration history is consistent                                                                                          |
 
-`pnpm test:e2e` starts `pnpm dev` itself (or reuses a running server) with the development sign-in switched on. With `CI=1` it serves the production build instead, so run `pnpm build` first. The suite runs one test at a time against one database and empties the ledger before each test. It, and `pnpm db:seed --reset`, refuse to run unless the database host is local.
+`pnpm test:e2e` starts `pnpm dev` itself on port 3100 (or reuses a server already running there). With `CI=1` it serves the production build instead, so run `pnpm build` first. The suite uses its own database, `lullet_e2e`, created and migrated on the server `DATABASE_URL` points at, seeds the four ledger members (`src/db/seed-ids.ts`) and signs in through the real login-link flow, and its own made-up secrets and bot token; no real Telegram bot is involved.
 
 ## Continuous integration
 
@@ -64,7 +67,7 @@ First time running end to end tests: `pnpm exec playwright install chromium`.
 2. **Unit and property tests** with coverage thresholds.
 3. **Integration tests** against a `postgres:18` service container.
 4. **Build**: `next build`.
-5. **Playwright** on the production build against a Postgres service container, phone and desktop projects.
+5. **Playwright** on the production build, phone and desktop projects, against a Postgres service container.
 
 No job calls a live external service; exchange rate tests replay recorded responses.
 
@@ -151,15 +154,16 @@ Routes: `/expenses` (list grouped by day, newest first, with a Deleted filter), 
 ## Layout
 
 ```
-src/app            Next.js routes: expenses, balances, settlements, server actions, /api/health
+src/app            Next.js routes: (app) pages that need a session, expenses, balances, settlements, /signin, /api/auth, /api/health, server actions
+src/proxy.ts       First gate: no session cookie, no protected page
 src/components     UI building blocks (app shell, forms, rows, icons)
 src/db             Drizzle schema, client, migration runner and the dev seed
-src/lib/auth       getSession (sign-in seam; development stand-in until Telegram sign-in)
+src/lib/auth       Telegram sign-in: init data check, login links, sessions (db/ holds the database code), getSession
 src/lib/ledger     Pure ledger logic: form validation, pricing, balances, audit diffs, formatting
 src/lib/money      Money and ledger library
 src/lib/fx         Exchange rate client
 src/server         Group-scoped data access layer and per-request store
-scripts            Seed script
+scripts            db:seed, auth:bootstrap and auth:mint-link
 src/test-support   Shared test generators
 tests/integration  Postgres integration tests
 tests/e2e          Playwright specs

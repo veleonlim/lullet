@@ -2,7 +2,7 @@ import { expect, test } from "./fixtures";
 
 // Every page needs a signed-in member, so these run in a page that is already signed in.
 test.describe("app shell", () => {
-  test("opens on the expense list under the lullet header", async ({ page }) => {
+  test("opens on the expense list under the lullet header", async ({ signedInPage: page }) => {
     await page.goto("/");
 
     await expect(page).toHaveURL(/\/expenses$/);

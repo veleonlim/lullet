@@ -1,13 +1,7 @@
 import { defineConfig, devices } from "@playwright/test";
 
-try {
-  // Local runs pick DATABASE_URL up from .env, like `next dev` does.
-  process.loadEnvFile();
-} catch {
-  // No .env file: rely on the process environment.
-}
-
-const port = Number(process.env.PORT ?? 3000);
+// A dedicated port, so a `pnpm dev` server on 3000 is never mistaken for the test server.
+const port = Number(process.env.PORT ?? 3100);
 const baseURL = `http://localhost:${port}`;
 const isCI = Boolean(process.env.CI);
 
@@ -27,7 +21,7 @@ process.env.APP_URL = baseURL;
 export default defineConfig({
   testDir: "./tests/e2e",
   globalSetup: "./tests/e2e/global-setup.ts",
-  // All tests share one database and one signed-in member, so they run one at a time.
+  // The ledger tests share one group and empty its ledger before each test, so they run one at a time.
   fullyParallel: false,
   workers: 1,
   forbidOnly: isCI,
@@ -48,9 +42,11 @@ export default defineConfig({
     url: baseURL,
     env: {
       PORT: String(port),
-      // The development sign-in stand-in: signs everyone in as the first seeded member.
+      DATABASE_URL: e2eDatabaseUrl.toString(),
+      SESSION_SECRET: process.env.SESSION_SECRET,
+      TELEGRAM_BOT_TOKEN: process.env.TELEGRAM_BOT_TOKEN,
+      APP_URL: baseURL,
       LULLET_DEV_AUTH: "1",
-      LULLET_E2E: "1",
     },
     reuseExistingServer: !isCI,
     timeout: 120_000,

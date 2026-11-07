@@ -42,6 +42,16 @@ export async function seedDevelopmentData(db: Database): Promise<void> {
         groupId: SEED_GROUP_ID,
         userId: member.id,
         position,
+        isOwner: position === 0,
+      })),
+    )
+    .onConflictDoNothing();
+  await db
+    .insert(s.telegramLinks)
+    .values(
+      SEED_MEMBERS.map((member) => ({
+        userId: member.id,
+        telegramUserId: member.telegramUserId,
       })),
     )
     .onConflictDoNothing();

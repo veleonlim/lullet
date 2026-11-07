@@ -1,41 +1,71 @@
-import { SEED_GROUP_ID, SEED_MEMBERS } from "@/db/seed-ids";
+import { cache } from "react";
+import { cookies } from "next/headers";
+import { redirect } from "next/navigation";
+import { SESSION_COOKIE_NAME } from "./config";
+import { getCurrentUser, type CurrentUser } from "./db/members";
+import { deleteSession, resolveSession } from "./db/sessions";
 
 /**
- * The caller. Pages and server actions obtain who is asking only through
- * `getSession`, and the ledger data layer scopes every query by this group.
- *
- * This module is the seam with Telegram sign-in, which owns `src/lib/auth/`. Until
- * that lands this file holds a development stand-in that returns the first seeded
- * member, and only when LULLET_DEV_AUTH=1 on a non production deployment. The real
- * implementation replaces `getSession` and keeps this exact signature.
+ * The seam the rest of the app uses to learn who is calling. Pages, server actions and route
+ * handlers get the caller only from `getSession()`; the data access layer then scopes every
+ * query by `groupId`. Nothing else in the app reads the cookie.
  */
 export interface Session {
   readonly userId: string;
   readonly groupId: string;
 }
 
-type Environment = Readonly<Record<string, string | undefined>>;
+const readSession = cache(async (): Promise<(Session & { sessionId: string }) | null> => {
+  const token = (await cookies()).get(SESSION_COOKIE_NAME)?.value;
+  if (!token) return null;
+  return resolveSession(token);
+});
 
-/**
- * The development sign-in is allowed only when it is asked for and the process is not a
- * production deployment: never on Vercel production or preview, never in a production
- * build unless the end to end suite explicitly serves one (LULLET_E2E=1, set only by
- * playwright.config.ts).
- */
-export function isDevAuthEnabled(env: Environment): boolean {
-  if (env.LULLET_DEV_AUTH !== "1") return false;
-  if (env.VERCEL_ENV === "production" || env.VERCEL_ENV === "preview") return false;
-  if (env.NODE_ENV === "production" && env.LULLET_E2E !== "1") return false;
-  return true;
+/** The signed-in member, or null (signed out, expired, logged out or removed from the group). */
+export async function getSession(): Promise<Session | null> {
+  const session = await readSession();
+  return session ? { userId: session.userId, groupId: session.groupId } : null;
 }
 
-export function getSession(): Promise<Session | null> {
-  return Promise.resolve(sessionFromEnvironment(process.env));
+/** For pages and layouts that need a member: sends everyone else to the sign-in page. */
+export async function requireSession(): Promise<Session> {
+  const session = await getSession();
+  if (!session) redirect("/signin");
+  return session;
 }
 
-/** Exported for tests, which pass an explicit environment instead of mutating `process.env`. */
-export function sessionFromEnvironment(env: Environment): Session | null {
-  if (!isDevAuthEnabled(env)) return null;
-  const member = SEED_MEMBERS[0];
-  return { userId: member.id, groupId: SEED_GROUP_ID };
+/** The session id (not the secret token); used to spare the current session when revoking others. */
+export async function getSessionId(): Promise<string | null> {
+  return (await readSession())?.sessionId ?? null;
+}
+
+/** The signed-in member with their display name and role, for the header and the members page. */
+export const getCurrentMember = cache(async (): Promise<CurrentUser | null> => {
+  const session = await getSession();
+  return session ? getCurrentUser(session) : null;
+});
+
+/** The raw cookie value, only for replacing or ending the session during login and logout. */
+export async function getSessionToken(): Promise<string | undefined> {
+  return (await cookies()).get(SESSION_COOKIE_NAME)?.value;
+}
+
+export function sessionCookieOptions(expiresAt: Date) {
+  return {
+    httpOnly: true,
+    // Browsers treat http://localhost as a secure context, so this also works in local development.
+    secure: true,
+    sameSite: "lax" as const,
+    path: "/",
+    expires: expiresAt,
+  };
+}
+
+/** Logout: forget the session on the server, then drop the cookie. */
+export async function endSession(): Promise<void> {
+  const jar = await cookies();
+  const token = jar.get(SESSION_COOKIE_NAME)?.value;
+  if (token) await deleteSession(token);
+  // A plain delete would omit `Secure`, and browsers ignore a `__Host-` cookie update without it.
+  jar.set(SESSION_COOKIE_NAME, "", { ...sessionCookieOptions(new Date(0)), maxAge: 0 });
 }

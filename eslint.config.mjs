@@ -70,6 +70,12 @@ export default defineConfig([
     },
   },
   {
+    // Playwright fixtures hand out their value through a callback named `use`, which the React
+    // hooks rule mistakes for React's `use`.
+    files: ["tests/e2e/**/*.ts"],
+    rules: { "react-hooks/rules-of-hooks": "off" },
+  },
+  {
     files: ["tests/**/*.ts", "**/*.test.ts", "src/test-support/**/*.ts"],
     rules: {
       "@typescript-eslint/no-non-null-assertion": "off",
