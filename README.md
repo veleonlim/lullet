@@ -50,7 +50,7 @@ First time running end to end tests: `pnpm exec playwright install chromium`.
 | `pnpm test:integration`        | Integration tests against real Postgres; needs `DATABASE_URL`                           |
 | `pnpm test:e2e`                | Playwright on a phone and a desktop viewport; needs Postgres (`DATABASE_URL`)           |
 | `pnpm auth:bootstrap`          | Create the group and link its members to Telegram accounts (once)                       |
-| `pnpm auth:mint-link`          | Print a one-time browser login link for a member                                                  |
+| `pnpm auth:mint-link`          | Print a one-time browser login link for a member                                        |
 | `pnpm db:generate`             | Generate a migration from schema changes                                                |
 | `pnpm db:migrate`              | Apply migrations to `DATABASE_URL_UNPOOLED` or `DATABASE_URL`                           |
 | `pnpm db:check`                | Verify the migration history is consistent                                              |
