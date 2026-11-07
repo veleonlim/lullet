@@ -1,4 +1,4 @@
-import { and, eq, gt, lt, ne } from "drizzle-orm";
+import { and, eq, gt, lt } from "drizzle-orm";
 import * as s from "@/db/schema";
 import { SESSION_TTL_SECONDS } from "../config";
 import { addSeconds, resolveDeps, type AuthDeps } from "../deps";
@@ -79,21 +79,4 @@ export async function resolveSession(
 export async function deleteSession(token: string, deps?: AuthDeps): Promise<void> {
   const { db, secret } = resolveDeps(deps);
   await db.delete(s.sessions).where(eq(s.sessions.tokenHash, hashToken(secret, token)));
-}
-
-/** Ends every session of a user, optionally sparing one. */
-export async function revokeUserSessions(
-  userId: string,
-  options: { readonly exceptSessionId?: string } = {},
-  deps?: AuthDeps,
-): Promise<void> {
-  const { db } = resolveDeps(deps);
-  await db
-    .delete(s.sessions)
-    .where(
-      and(
-        eq(s.sessions.userId, userId),
-        options.exceptSessionId ? ne(s.sessions.id, options.exceptSessionId) : undefined,
-      ),
-    );
 }

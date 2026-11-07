@@ -10,12 +10,7 @@ import {
   listMembers,
   rebindMember,
 } from "@/lib/auth/db/members";
-import {
-  createSession,
-  deleteSession,
-  resolveSession,
-  revokeUserSessions,
-} from "@/lib/auth/db/sessions";
+import { createSession, deleteSession, resolveSession } from "@/lib/auth/db/sessions";
 import { hashToken } from "@/lib/auth/tokens";
 import { buildInitData, TEST_BOT_TOKEN } from "@/test-support/telegram";
 import {
@@ -195,17 +190,6 @@ describe("sessions", () => {
       .delete(s.telegramLinks)
       .where(eq(s.telegramLinks.userId, seed.userIds[0] ?? ""));
     expect(await resolveSession(token, deps())).toBeNull();
-  });
-
-  it("can revoke every session of a user, optionally sparing one", async () => {
-    const a = await createSession(member(), {}, deps());
-    const b = await createSession(member(), {}, deps());
-    const kept = await resolveSession(a.token, deps());
-    await revokeUserSessions(member().userId, { exceptSessionId: kept?.sessionId ?? "" }, deps());
-    expect(await resolveSession(a.token, deps())).not.toBeNull();
-    expect(await resolveSession(b.token, deps())).toBeNull();
-    await revokeUserSessions(member().userId, {}, deps());
-    expect(await resolveSession(a.token, deps())).toBeNull();
   });
 
   it("looks up the current user's name and role", async () => {
