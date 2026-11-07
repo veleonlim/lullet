@@ -511,14 +511,19 @@ export function createLedgerKit(options: StoreOptions): LedgerKit {
     );
   }
 
-  async function expenseInput(input: ExpenseInput): Promise<void> {
+  async function expenseInput(
+    input: ExpenseInput,
+    current: StoredExpense | null = null,
+  ): Promise<void> {
     await assertMembers([
       ...input.payers.map((p) => p.userId),
       ...input.shares.map((p) => p.userId),
     ]);
+    const amount = toConvertible(input.spentOn, input);
+    if (current && retainedPricedRate(current, amount)) return;
     await ensureMarketRate({
       date: input.spentOn,
-      needed: (overrides) => marketRateNeeded(toConvertible(input.spentOn, input), overrides),
+      needed: (overrides) => marketRateNeeded(amount, overrides),
     });
   }
 
@@ -851,7 +856,7 @@ export function createLedgerKit(options: StoreOptions): LedgerKit {
     async updateExpense(id, input, expectedUpdatedAt) {
       await members();
       assertId(id, "Expense");
-      await expenseInput(input);
+      await expenseInput(input, await readExpense(db, id));
       return db.transaction(async (tx) => {
         const [locked] = await tx
           .select({ updatedAt: s.expenses.updatedAt, deletedAt: s.expenses.deletedAt })

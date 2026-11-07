@@ -454,6 +454,39 @@ describe("daily exchange rates and re-pricing", () => {
     expect((await sgdFigures(store)).Francs).toBe(16000);
   });
 
+  it("edits an expense that keeps its stored rate without needing the exchange rate service", async () => {
+    const seed = await seedGroup(db);
+    const offline = storeFor(db, seed, { fx: new FakeFx({}) });
+    await offline.setDailyRate({ day, currency: "EUR", rate: rate("1.8") });
+    const lunch = await offline.createExpense(
+      expenseInput(seed, { description: "Lunch", amount: "100.00" }),
+    );
+    await offline.clearDailyRate({ day, currency: "EUR" });
+    expect(await db.select().from(s.fxRates)).toEqual([]);
+
+    const edit = (input: Parameters<typeof offline.updateExpense>[1]) =>
+      offline.getExpense(lunch.id).then((current) => {
+        if (!current) throw new Error("missing expense");
+        return offline.updateExpense(lunch.id, input, current.updatedAt);
+      });
+
+    await edit(expenseInput(seed, { description: "Lunch at the market", amount: "100.00" }));
+    expect((await sgdFigures(offline))["Lunch at the market"]).toBe(18000);
+    expect(await db.select().from(s.fxRates)).toEqual([]);
+
+    // A new day has no stored rate to keep, so it does need the service.
+    await expect(
+      edit(
+        expenseInput(seed, {
+          description: "Lunch at the market",
+          amount: "100.00",
+          spentOn: "2026-11-03",
+        }),
+      ),
+    ).rejects.toBeInstanceOf(RateUnavailableError);
+    expect((await stored("Lunch at the market")).spentOn).toBe(day);
+  });
+
   it("saving or removing a day rate moves no expense, balance, settle-up or dashboard figure, and offers a re-price", async () => {
     const { seed, store } = await seedDay();
     const before = await figuresShown(store);
