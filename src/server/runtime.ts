@@ -1,3 +1,4 @@
+import { redirect } from "next/navigation";
 import { connection } from "next/server";
 import { getDatabase } from "@/db/client";
 import { getSession } from "@/lib/auth/session";
@@ -12,14 +13,15 @@ function fxClient(): FxRateClient {
 }
 
 /**
- * The ledger for whoever is asking, or null when nobody is signed in. Every page and
+ * The ledger for whoever is asking; a caller without a live session is sent to the sign-in
+ * page, like everywhere else in the app. Every page and
  * server action gets its data only through this: the caller comes from `getSession`
  * and the store scopes every query to that session's group.
  */
-export async function openStore(): Promise<LedgerStore | null> {
+export async function openStore(): Promise<LedgerStore> {
   // Ledger pages depend on who is asking and on live data: never prerender them.
   await connection();
   const session = await getSession();
-  if (!session) return null;
+  if (!session) redirect("/signin");
   return createLedgerStore({ db: getDatabase().db, session, fx: fxClient() });
 }

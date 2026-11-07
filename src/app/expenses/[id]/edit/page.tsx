@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { ExpenseForm } from "@/components/expense-form";
-import { Button, ButtonLink, Notice, PageHeader, SignedOut } from "@/components/ui";
+import { Button, ButtonLink, Notice, PageHeader } from "@/components/ui";
 import { expenseToFormValues, todayIn } from "@/lib/ledger";
 import { openStore } from "@/server/runtime";
 import { restoreExpenseAction } from "../../../actions";
@@ -10,7 +10,6 @@ export const metadata: Metadata = { title: "Edit expense" };
 
 export default async function EditExpensePage({ params }: { params: Promise<{ id: string }> }) {
   const store = await openStore();
-  if (!store) return <SignedOut />;
   const { id } = await params;
   const expense = await store.getExpense(id);
   if (!expense) notFound();

@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { ExpenseRow } from "@/components/expense-row";
 import { ReceiptIcon } from "@/components/icons";
-import { Button, ButtonLink, Card, Notice, PageHeader, SignedOut } from "@/components/ui";
+import { Button, ButtonLink, Card, Notice, PageHeader } from "@/components/ui";
 import {
   formatDay,
   formatMoney,
@@ -24,7 +24,6 @@ export default async function ExpensesPage({
   searchParams: Promise<{ view?: string; removed?: string }>;
 }) {
   const store = await openStore();
-  if (!store) return <SignedOut />;
   const params = await searchParams;
   const showDeleted = params.view === "deleted";
 

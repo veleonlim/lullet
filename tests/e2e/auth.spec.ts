@@ -58,6 +58,19 @@ test.describe("signed out", () => {
     ).toBeVisible();
   });
 
+  test("ledger pages send a visitor whose session is no longer live to the sign-in page", async ({
+    page,
+  }) => {
+    await plantSessionCookie(page, "revoked-or-unknown");
+    for (const path of ["/expenses", "/expenses/new", "/balances", "/settlements/new"]) {
+      await page.goto(path);
+      await expect(page).toHaveURL(/\/signin/);
+      await expect(
+        page.getByRole("heading", { level: 1, name: "Sign in with Telegram" }),
+      ).toBeVisible();
+    }
+  });
+
   test("the sign-in page does not redirect to another site through ?next", async ({
     page,
     group,

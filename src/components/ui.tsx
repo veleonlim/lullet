@@ -149,14 +149,3 @@ export function Pill({
     </span>
   );
 }
-
-export function SignedOut() {
-  return (
-    <Card className="mx-auto max-w-md p-6 text-center">
-      <h1 className="text-xl font-semibold">You are signed out</h1>
-      <p className="mt-2 text-sm text-muted">
-        Sign in to see your group&apos;s expenses and balances.
-      </p>
-    </Card>
-  );
-}

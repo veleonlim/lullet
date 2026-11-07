@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { PageHeader, SignedOut } from "@/components/ui";
+import { PageHeader } from "@/components/ui";
 import { SettlementForm } from "@/components/settlement-form";
 import { blankSettlementForm, todayIn } from "@/lib/ledger";
 import { openStore } from "@/server/runtime";
@@ -12,7 +12,6 @@ export default async function NewSettlementPage({
   searchParams: Promise<{ from?: string; to?: string; amount?: string }>;
 }) {
   const store = await openStore();
-  if (!store) return <SignedOut />;
   const params = await searchParams;
   const members = await store.members();
 

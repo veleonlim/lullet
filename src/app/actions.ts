@@ -16,8 +16,6 @@ export interface FormState {
   readonly errors: FieldErrors;
 }
 
-const SIGNED_OUT: FormState = { errors: { form: "You are signed out. Sign in and try again." } };
-
 function readPayload(formData: FormData): unknown {
   const payload = formData.get("payload");
   if (typeof payload !== "string") return null;
@@ -52,7 +50,6 @@ export async function saveExpenseAction(
   formData: FormData,
 ): Promise<FormState> {
   const store = await openStore();
-  if (!store) return SIGNED_OUT;
   const members = await store.members();
   const checked = validateExpenseForm(
     readPayload(formData),
@@ -80,7 +77,6 @@ export async function saveExpenseAction(
 
 export async function deleteExpenseAction(expenseId: string): Promise<void> {
   const store = await openStore();
-  if (!store) redirect("/expenses");
   await store.deleteExpense(expenseId);
   refresh();
   redirect(`/expenses?removed=${expenseId}`);
@@ -88,7 +84,6 @@ export async function deleteExpenseAction(expenseId: string): Promise<void> {
 
 export async function restoreExpenseAction(expenseId: string): Promise<void> {
   const store = await openStore();
-  if (!store) redirect("/expenses");
   await store.restoreExpense(expenseId);
   refresh();
   redirect(`/expenses/${expenseId}`);
@@ -99,7 +94,6 @@ export async function saveSettlementAction(
   formData: FormData,
 ): Promise<FormState> {
   const store = await openStore();
-  if (!store) return SIGNED_OUT;
   const members = await store.members();
   const checked: Validated<Parameters<typeof store.createSettlement>[0]> = validateSettlementForm(
     readPayload(formData),
@@ -117,7 +111,6 @@ export async function saveSettlementAction(
 
 export async function deleteSettlementAction(settlementId: string): Promise<void> {
   const store = await openStore();
-  if (!store) redirect("/balances");
   await store.deleteSettlement(settlementId);
   refresh();
   redirect(`/balances?removedSettlement=${settlementId}`);
@@ -125,7 +118,6 @@ export async function deleteSettlementAction(settlementId: string): Promise<void
 
 export async function restoreSettlementAction(settlementId: string): Promise<void> {
   const store = await openStore();
-  if (!store) redirect("/balances");
   await store.restoreSettlement(settlementId);
   refresh();
   redirect("/balances");

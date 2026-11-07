@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { LocalTime } from "@/components/local-time";
-import { Card, PageHeader, Pill, SignedOut } from "@/components/ui";
+import { Card, PageHeader, Pill } from "@/components/ui";
 import {
   auditActionLabel,
   describeExpenseChanges,
@@ -15,7 +15,6 @@ export const metadata: Metadata = { title: "Expense history" };
 
 export default async function ExpenseHistoryPage({ params }: { params: Promise<{ id: string }> }) {
   const store = await openStore();
-  if (!store) return <SignedOut />;
   const { id } = await params;
   const expense = await store.getExpense(id);
   if (!expense) notFound();

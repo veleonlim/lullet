@@ -1,16 +1,7 @@
 import type { Metadata } from "next";
 import { Avatar } from "@/components/avatar";
 import { ArrowRightIcon, CheckIcon } from "@/components/icons";
-import {
-  Button,
-  ButtonLink,
-  Card,
-  Notice,
-  PageHeader,
-  Pill,
-  SectionTitle,
-  SignedOut,
-} from "@/components/ui";
+import { Button, ButtonLink, Card, Notice, PageHeader, Pill, SectionTitle } from "@/components/ui";
 import { assertCurrencyCode, REPORTING_CURRENCY, type MemberBalance } from "@/lib/money";
 import {
   formatDate,
@@ -32,7 +23,6 @@ export default async function BalancesPage({
   searchParams: Promise<{ settled?: string; removedSettlement?: string }>;
 }) {
   const store = await openStore();
-  if (!store) return <SignedOut />;
   const params = await searchParams;
 
   const ledger = await store.loadLedger();

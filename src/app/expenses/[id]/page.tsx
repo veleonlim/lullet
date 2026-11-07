@@ -4,16 +4,7 @@ import { notFound } from "next/navigation";
 import { Avatar } from "@/components/avatar";
 import { CategoryIcon, ClockIcon } from "@/components/icons";
 import { LocalTime } from "@/components/local-time";
-import {
-  Button,
-  ButtonLink,
-  Card,
-  Notice,
-  PageHeader,
-  Pill,
-  SectionTitle,
-  SignedOut,
-} from "@/components/ui";
+import { Button, ButtonLink, Card, Notice, PageHeader, Pill, SectionTitle } from "@/components/ui";
 import {
   categoryLabel,
   describeConversion,
@@ -33,7 +24,6 @@ export const metadata: Metadata = { title: "Expense" };
 
 export default async function ExpenseDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const store = await openStore();
-  if (!store) return <SignedOut />;
   const { id } = await params;
   const expense = await store.getExpense(id);
   if (!expense) notFound();
