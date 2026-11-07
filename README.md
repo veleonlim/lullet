@@ -2,7 +2,7 @@
 
 Europe Split: a Splitwise-like expense splitter for four people (the requester, their girlfriend and their parents), first used on a trip to Switzerland and Italy.
 
-Telegram is the capture and edit surface; this web app is the database and dashboard. This repository holds the foundation (app skeleton, database schema, the money and ledger library, the quality gates), Telegram sign-in, the web ledger (expense list, add and edit, soft delete and restore, history, balances and settle-up) and the screenshot import (upload, read by Claude, review, confirm, undo). Later slices add the Telegram bot and the dashboard.
+Telegram is the capture and edit surface; this web app is the database and dashboard. This repository holds the foundation (app skeleton, database schema, the money and ledger library, the quality gates), Telegram sign-in, the web ledger (expense list, add and edit, soft delete and restore, history, balances and settle-up), the screenshot import (upload, read by Claude, review, confirm, undo), and the dashboard with daily budgets and daily exchange rates. Later slices add the Telegram bot.
 
 ## Stack
 
@@ -117,7 +117,7 @@ Not done here: rate limiting of the public auth routes (slice 7), and the bot it
 
 Schema lives in `src/db/schema/` and migrations in `drizzle/`. Run `pnpm db:generate` after changing the schema and commit the result; CI fails if the migrations and schema disagree.
 
-Tables: `users`, `groups`, `memberships` (with `is_owner`, at most one owner per group), `expenses`, `expense_payers`, `expense_shares`, `settlements`, `imports`, `import_rows`, `fx_rates` (stored market rates), `daily_rates` (per day default rate overrides), `budgets`, `audit_log`, `telegram_links`, `sessions` and `login_tokens`.
+Tables: `users`, `groups` (with the trip's first and last day and time zone), `memberships` (with `is_owner`, at most one owner per group), `expenses`, `expense_payers`, `expense_shares`, `settlements`, `imports`, `import_rows`, `fx_rates` (stored market rates), `daily_rates` (per day default rate overrides), `budgets`, `audit_log`, `telegram_links`, `sessions` and `login_tokens`.
 
 Money is always an integer count of minor units (`4850` plus `EUR`), stored as `bigint`. The database itself enforces what it can, in `0000_core_schema.sql` and the hand written `0001_invariants.sql`:
 
@@ -175,15 +175,26 @@ The four agreed steps: upload a screenshot, have it read into one row per paymen
 
 **Tests.** Contract tests drive the extractor with hand-built Messages API responses (clean, ambiguous, refused, cut off, malformed, an injection attempt) and make no network call. Integration tests cover drafts, duplicates, confirm, undo, permissions, expiry and retention against real Postgres; Playwright covers upload, editing a row (remove Jamie), confirm, Cancel, duplicate re-upload and a non-uploader trying to confirm, on a phone and a desktop viewport with the model replaced by `LULLET_EXTRACTOR=stub`. The accuracy eval is manual: put redacted screenshots and golden files in a folder and run `pnpm eval:screenshots <folder>` (format in `scripts/eval-screenshots.ts`); it prints per-field accuracy and "silent errors" for Haiku and Sonnet side by side, and does nothing without an API key.
 
+## Dashboard, budgets and daily rates
+
+Routes: `/dashboard` (trip so far against the budget, a day by day chart, each person's share, by category), `/dashboard/[day]` (one day: its total, each person's share, categories and the expenses on it), `/budget` (the daily budget, budgets for single days, the trip's dates and time zone) and `/rates` (default exchange rate per currency per day).
+
+- **What is counted.** Everything is in SGD through the usual rate precedence, and the totals are the ledger's: the sum of the days, of the members and of the categories all equal the group total on `/expenses`. A person's figure is their share of each expense, not who paid. Expenses with no exchange rate yet are left out and flagged, never guessed. `buildDashboard` in `src/lib/dashboard/aggregate.ts` is the one place that buckets, and `tests/integration/dashboard-store.test.ts` checks it against `summariseLedger`.
+- **Days.** A day is the date written on the expense, never shifted by a time zone. The trip's time zone (default `Europe/Zurich`, set on `/budget`) only decides which day is today. The days shown are the trip's first to last day when set, otherwise the days that have expenses up to today, and always include every day with an expense so totals cannot drift from the ledger.
+- **Budget.** One daily budget for the group, overridable for any day (`budgets` table, SGD). The meter is green under 80%, amber from 80% up to 100% and red above 100%, and always says so in words. Each person's share is compared with the day's budget divided by the members (spare cents go to the first members in the fixed order, so the slices add up). "So far" means the days up to today in the trip's time zone, and only days that have a budget count towards the budget side.
+- **Daily rates.** Prices are always derived from the current rates, never stored, so saving a day's rate prices that day's expenses at once (an expense billed in SGD, or with a rate of its own, keeps its figure). Saving, or removing, a rate re-prices in the same transaction and writes an `audit_log` row for the rate plus one `expense.reprice` row per expense whose SGD figure moved, with the old and new figure and how each was decided; the expense's history page shows them. "Re-price this day" fetches the day's market rate if it was never stored, recomputes through the precedence and records the result. Removing a day rate first makes sure the market rate is on file and is refused if it cannot be, so no expense is left without a price.
+- **Charts** are hand written HTML and CSS (`src/components/dashboard/day-chart.tsx`), not a library: nothing extra ships to the phone, text stays crisp at any width, and every colour comes from the theme tokens in `globals.css` so light and dark agree. One colour per category in a fixed order (the validated data-viz palette, never repainted by rank), a legend, a text equivalent (the day list under the chart) and state shown in words as well as colour.
+
 ## Layout
 
 ```
-src/app            Next.js routes: (app) pages that need a session, expenses, balances, settlements, /imports, /signin, /api/auth, /api/imports, /api/cron, /api/health, server actions
+src/app            Next.js routes: (app) pages that need a session, expenses, balances, settlements, dashboard, budget, rates, /imports, /signin, /api/auth, /api/imports, /api/cron, /api/health, server actions
 src/proxy.ts       First gate: no session cookie, no protected page
 src/components     UI building blocks (app shell, forms, rows, icons); import/ holds the upload and review screens
 src/db             Drizzle schema, client, migration runner and the dev seed
 src/lib/auth       Telegram sign-in: init data check, login links, sessions (db/ holds the database code), getSession
 src/lib/ledger     Pure ledger logic: form validation, pricing, balances, audit diffs, formatting
+src/lib/dashboard  Pure dashboard logic: day bucketing, budget maths, re-pricing, trip range, chart scales, form validation
 src/lib/money      Money and ledger library
 src/lib/fx         Exchange rate client
 src/lib/import     Screenshot import logic: image checks, extraction schema, doubt states, duplicates, splits, drafts

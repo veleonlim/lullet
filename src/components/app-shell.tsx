@@ -23,10 +23,10 @@ export function AppShell({
   return (
     <div className="flex min-h-dvh flex-col">
       <header className="sticky top-0 z-10 border-b border-border bg-background/90 backdrop-blur">
-        <div className="mx-auto flex h-14 w-full max-w-3xl items-center justify-between gap-3 px-4 pt-[env(safe-area-inset-top)] sm:px-6">
-          <div className="flex min-w-0 flex-col sm:flex-row sm:items-baseline sm:gap-2.5">
+        <div className="mx-auto flex h-14 w-full max-w-3xl items-center justify-between gap-3 px-4 pt-[env(safe-area-inset-top)] sm:px-6 md:max-w-5xl">
+          <div className="flex min-w-0 flex-col md:flex-row md:items-baseline md:gap-2.5">
             <span className="text-lg leading-tight font-semibold tracking-tight">lullet</span>
-            <span className="truncate text-xs leading-tight text-muted sm:text-sm">
+            <span className="truncate text-xs leading-tight text-muted md:hidden lg:inline lg:text-sm">
               Split trip costs, fairly
             </span>
           </div>
@@ -56,7 +56,7 @@ export function AppShell({
           ) : null}
         </div>
       </header>
-      <main className="mx-auto w-full max-w-3xl flex-1 px-4 pt-5 pb-28 sm:px-6 sm:pt-8 sm:pb-12">
+      <main className="mx-auto w-full max-w-3xl flex-1 px-4 pt-5 pb-28 sm:px-6 sm:pt-8 md:pb-12">
         {children}
       </main>
       {member ? <BottomNav /> : null}

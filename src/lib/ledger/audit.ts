@@ -19,6 +19,13 @@ export const AUDIT_ACTIONS = [
   "import.undo",
   "import.cancel",
   "import.image_deleted",
+  "expense.reprice",
+  "daily_rate.set",
+  "daily_rate.clear",
+  "daily_rate.reprice",
+  "budget.set",
+  "budget.clear",
+  "trip.update",
 ] as const;
 export type AuditAction = (typeof AUDIT_ACTIONS)[number];
 
@@ -58,6 +65,38 @@ export const settlementSnapshotSchema = z.object({
   note: z.string().nullable(),
 });
 export type SettlementSnapshot = z.infer<typeof settlementSnapshotSchema>;
+
+/** How an expense's SGD figure was worked out at one moment; stored in the audit log when it is re-priced. */
+export const pricingSnapshotSchema = z.object({
+  sgdMinor: z.number().int(),
+  source: z.enum(["native", "billed", "expense_rate", "day_override", "market"]),
+  /** SGD per 1 unit of the converted currency; null when no rate was involved. */
+  rate: z.string().nullable(),
+});
+export type PricingSnapshot = z.infer<typeof pricingSnapshotSchema>;
+
+/** The JSON in `audit_log.before` and `.after` for an `expense.reprice` entry. */
+export const repriceSnapshotSchema = z.object({
+  description: z.string().optional(),
+  spentOn: z.string().optional(),
+  pricing: pricingSnapshotSchema.nullable(),
+});
+
+const PRICING_SOURCE_LABELS: Record<PricingSnapshot["source"], string> = {
+  native: "Already in SGD",
+  billed: "Exact figure billed in SGD",
+  expense_rate: "Your rate on the expense",
+  day_override: "Day rate",
+  market: "Market rate",
+};
+
+/** "S$222.74 (Day rate S$1.55)" or "No exchange rate". */
+export function describePricing(pricing: PricingSnapshot | null): string {
+  if (pricing === null) return "No exchange rate";
+  const label = PRICING_SOURCE_LABELS[pricing.source];
+  const rate = pricing.rate === null ? "" : ` S$${pricing.rate}`;
+  return `${formatMoney(pricing.sgdMinor, "SGD")} (${label}${rate})`;
+}
 
 export function snapshotExpense(expense: StoredExpense): ExpenseSnapshot {
   return {
@@ -196,6 +235,20 @@ export function auditActionLabel(action: string): string {
       return "Discarded a screenshot import";
     case "import.image_deleted":
       return "Deleted the original screenshot";
+    case "expense.reprice":
+      return "Re-priced";
+    case "daily_rate.set":
+      return "Set a day rate";
+    case "daily_rate.clear":
+      return "Cleared a day rate";
+    case "daily_rate.reprice":
+      return "Re-priced a day";
+    case "budget.set":
+      return "Set a budget";
+    case "budget.clear":
+      return "Cleared a budget";
+    case "trip.update":
+      return "Changed the trip";
     default:
       return action;
   }

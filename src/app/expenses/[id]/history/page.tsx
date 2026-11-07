@@ -5,7 +5,9 @@ import { Card, PageHeader, Pill } from "@/components/ui";
 import {
   auditActionLabel,
   describeExpenseChanges,
+  describePricing,
   expenseSnapshotSchema,
+  repriceSnapshotSchema,
   type Change,
 } from "@/lib/ledger";
 import { NotFoundError } from "@/server/ledger";
@@ -97,6 +99,18 @@ function changesOf(
   after: unknown,
   nameOf: (userId: string) => string,
 ): Change[] {
+  if (action === "expense.reprice") {
+    const left = repriceSnapshotSchema.safeParse(before);
+    const right = repriceSnapshotSchema.safeParse(after);
+    if (!left.success || !right.success) return [];
+    return [
+      {
+        label: "SGD figure",
+        from: describePricing(left.data.pricing),
+        to: describePricing(right.data.pricing),
+      },
+    ];
+  }
   if (action !== "expense.create" && action !== "expense.update") return [];
   const left = expenseSnapshotSchema.safeParse(before);
   const right = expenseSnapshotSchema.safeParse(after);

@@ -2,12 +2,14 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { PlusIcon, ReceiptIcon, ScaleIcon } from "./icons";
+import { ChartIcon, PlusIcon, RatesIcon, ReceiptIcon, ScaleIcon } from "./icons";
 import { route } from "@/lib/routes";
 
 const ITEMS = [
   { href: "/expenses", label: "Expenses", Icon: ReceiptIcon, match: /^\/(expenses(?!\/new)|$)/ },
+  { href: "/dashboard", label: "Dashboard", Icon: ChartIcon, match: /^\/(dashboard|budget)/ },
   { href: "/balances", label: "Balances", Icon: ScaleIcon, match: /^\/(balances|settlements)/ },
+  { href: "/rates", label: "Rates", Icon: RatesIcon, match: /^\/rates/ },
 ] as const;
 
 function useActive() {
@@ -19,7 +21,7 @@ function useActive() {
 export function TopNav() {
   const isActive = useActive();
   return (
-    <nav aria-label="Main" className="hidden items-center gap-1 sm:flex">
+    <nav aria-label="Main" className="hidden items-center gap-1 md:flex">
       {ITEMS.map(({ href, label, match }) => (
         <Link
           key={href}
@@ -49,7 +51,7 @@ export function TopNav() {
 export function BottomNav() {
   const isActive = useActive();
   const adding = usePathname() === "/expenses/new";
-  const [expenses, balances] = ITEMS;
+  const [expenses, dashboard, balances, rates] = ITEMS;
   const tab = (item: (typeof ITEMS)[number]) => (
     <Link
       key={item.href}
@@ -66,10 +68,11 @@ export function BottomNav() {
   return (
     <nav
       aria-label="Main"
-      className="fixed inset-x-0 bottom-0 z-20 border-t border-border bg-background/95 pb-[env(safe-area-inset-bottom)] backdrop-blur sm:hidden"
+      className="fixed inset-x-0 bottom-0 z-20 border-t border-border bg-background/95 pb-[env(safe-area-inset-bottom)] backdrop-blur md:hidden"
     >
       <div className="mx-auto flex max-w-3xl items-center px-2">
         {tab(expenses)}
+        {tab(dashboard)}
         <Link
           href={"/expenses/new"}
           aria-label="Add expense"
@@ -79,6 +82,7 @@ export function BottomNav() {
           <PlusIcon width={26} height={26} />
         </Link>
         {tab(balances)}
+        {tab(rates)}
       </div>
     </nav>
   );
