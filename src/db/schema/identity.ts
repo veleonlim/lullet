@@ -1,5 +1,15 @@
 import { sql } from "drizzle-orm";
-import { bigint, check, pgTable, smallint, text, unique, uuid } from "drizzle-orm/pg-core";
+import {
+  bigint,
+  boolean,
+  check,
+  pgTable,
+  smallint,
+  text,
+  unique,
+  uniqueIndex,
+  uuid,
+} from "drizzle-orm/pg-core";
 import { timestamptz } from "./_shared";
 
 export const users = pgTable("users", {
@@ -31,9 +41,14 @@ export const memberships = pgTable(
       .notNull()
       .references(() => users.id),
     position: smallint().notNull(),
+    /** The one member who may re-bind another member's Telegram account (see `auth.ts`). */
+    isOwner: boolean("is_owner").notNull().default(false),
     createdAt: timestamptz("created_at").notNull().defaultNow(),
   },
   (t) => [
+    uniqueIndex("memberships_one_owner_per_group_idx")
+      .on(t.groupId)
+      .where(sql`${t.isOwner}`),
     // Also the target of composite foreign keys that prove a user belongs to the group.
     unique("memberships_group_user_key").on(t.groupId, t.userId),
     unique("memberships_group_position_key").on(t.groupId, t.position),

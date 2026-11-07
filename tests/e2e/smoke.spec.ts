@@ -1,7 +1,8 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./fixtures";
 
+// Every page needs a signed-in member, so these run in a page that is already signed in.
 test.describe("app shell", () => {
-  test("renders the placeholder home page", async ({ page }) => {
+  test("renders the placeholder home page", async ({ signedInPage: page }) => {
     await page.goto("/");
 
     await expect(page).toHaveTitle("lullet");
@@ -13,7 +14,7 @@ test.describe("app shell", () => {
     await expect(page.getByRole("listitem")).toHaveText([/Ledger/, /Balances/, /Telegram/]);
   });
 
-  test("fits the viewport without sideways scrolling", async ({ page }) => {
+  test("fits the viewport without sideways scrolling", async ({ signedInPage: page }) => {
     await page.goto("/");
     const overflow = await page.evaluate(() => {
       const root = document.documentElement;
@@ -23,7 +24,7 @@ test.describe("app shell", () => {
   });
 
   test("is mobile friendly: viewport meta is set and content stays inside a readable column", async ({
-    page,
+    signedInPage: page,
   }) => {
     await page.goto("/");
     await expect(page.locator('meta[name="viewport"]')).toHaveAttribute(
@@ -35,7 +36,7 @@ test.describe("app shell", () => {
     expect(box?.width ?? 0).toBeLessThanOrEqual(768);
   });
 
-  test("loads without console errors or failed requests", async ({ page }) => {
+  test("loads without console errors or failed requests", async ({ signedInPage: page }) => {
     const problems: string[] = [];
     page.on("console", (message) => {
       if (message.type() === "error") problems.push(`console: ${message.text()}`);
@@ -47,7 +48,7 @@ test.describe("app shell", () => {
     expect(problems).toEqual([]);
   });
 
-  test("follows the system colour scheme", async ({ page }) => {
+  test("follows the system colour scheme", async ({ signedInPage: page }) => {
     await page.emulateMedia({ colorScheme: "light" });
     await page.goto("/");
     const light = await page.evaluate(() => getComputedStyle(document.body).backgroundColor);
@@ -64,8 +65,13 @@ test.describe("health endpoint", () => {
     expect(await response.json()).toEqual({ status: "ok" });
   });
 
-  test("unknown routes give a 404", async ({ request }) => {
-    const response = await request.get("/does-not-exist");
+  test("unknown routes give a 404 to a signed-in member", async ({ signedInPage }) => {
+    const response = await signedInPage.request.get("/does-not-exist");
     expect(response.status()).toBe(404);
+  });
+
+  test("unknown routes reveal nothing to a signed-out visitor", async ({ page }) => {
+    await page.goto("/does-not-exist");
+    await expect(page).toHaveURL(/\/signin/);
   });
 });

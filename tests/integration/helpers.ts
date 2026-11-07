@@ -2,6 +2,7 @@ import { sql } from "drizzle-orm";
 import { expect } from "vitest";
 import { createDatabase, type Database, type DatabaseHandle } from "@/db/client";
 import * as s from "@/db/schema";
+import { bootstrapGroup } from "@/lib/auth/db/members";
 
 let handle: DatabaseHandle | undefined;
 
@@ -126,3 +127,26 @@ export const PG = {
   foreignKeyViolation: "23503",
   restrictViolation: "23001",
 } as const;
+
+export interface AuthSeed extends Seed {
+  /** Telegram user ids of the members, in member order. The first member is the owner. */
+  readonly telegramIds: readonly number[];
+}
+
+/** A four member group where every member is linked to a Telegram account (the allowlist). */
+export async function seedAllowlistedGroup(db: Database): Promise<AuthSeed> {
+  const telegramIds = [1001, 1002, 1003, 1004];
+  const { groupId, userIds } = await bootstrapGroup(
+    {
+      groupName: "Switzerland and Italy",
+      members: telegramIds.map((telegramUserId, i) => ({
+        displayName: `Member ${i + 1}`,
+        telegramUserId,
+      })),
+    },
+    { db, secret: TEST_SECRET },
+  );
+  return { groupId, userIds, telegramIds };
+}
+
+export const TEST_SECRET = "integration-test-secret-0123456789abcdef";
