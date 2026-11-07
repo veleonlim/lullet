@@ -104,8 +104,6 @@ jobs:
     name: Playwright (phone and desktop)
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    # The app needs a database to sign anyone in; the suite creates and migrates its own
-    # `lullet_e2e` database on this server (tests/e2e/global-setup.ts).
     services:
       postgres:
         image: postgres:18
@@ -121,6 +119,7 @@ jobs:
           --health-timeout 5s
           --health-retries 10
     env:
+      # The suite migrates and seeds this database itself (tests/e2e/global-setup.ts).
       DATABASE_URL: postgres://lullet:lullet@localhost:5432/lullet
     steps:
       - uses: actions/checkout@v7

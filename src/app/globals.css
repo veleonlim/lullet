@@ -4,11 +4,20 @@
 :root {
   --background: oklch(0.985 0.004 95);
   --surface: oklch(1 0 0);
+  --surface-muted: oklch(0.968 0.006 255);
   --foreground: oklch(0.24 0.02 255);
   --muted: oklch(0.5 0.02 255);
   --border: oklch(0.92 0.006 255);
+  --border-strong: oklch(0.84 0.01 255);
   --accent: oklch(0.52 0.12 240);
+  --accent-foreground: oklch(0.99 0 0);
   --accent-soft: oklch(0.95 0.025 240);
+  --positive: oklch(0.5 0.12 155);
+  --positive-soft: oklch(0.95 0.035 155);
+  --negative: oklch(0.54 0.17 27);
+  --negative-soft: oklch(0.96 0.025 27);
+  --warning: oklch(0.5 0.1 70);
+  --warning-soft: oklch(0.96 0.045 85);
   color-scheme: light dark;
 }
 
@@ -16,32 +25,79 @@
   :root {
     --background: oklch(0.2 0.015 255);
     --surface: oklch(0.25 0.018 255);
+    --surface-muted: oklch(0.285 0.02 255);
     --foreground: oklch(0.95 0.005 95);
     --muted: oklch(0.72 0.02 255);
     --border: oklch(0.33 0.02 255);
+    --border-strong: oklch(0.43 0.025 255);
     --accent: oklch(0.75 0.11 240);
+    --accent-foreground: oklch(0.2 0.02 255);
     --accent-soft: oklch(0.3 0.04 240);
+    --positive: oklch(0.78 0.13 155);
+    --positive-soft: oklch(0.3 0.045 155);
+    --negative: oklch(0.76 0.13 27);
+    --negative-soft: oklch(0.31 0.045 27);
+    --warning: oklch(0.82 0.1 85);
+    --warning-soft: oklch(0.32 0.05 85);
   }
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-surface: var(--surface);
+  --color-surface-muted: var(--surface-muted);
   --color-foreground: var(--foreground);
   --color-muted: var(--muted);
   --color-border: var(--border);
+  --color-border-strong: var(--border-strong);
   --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
   --color-accent-soft: var(--accent-soft);
+  --color-positive: var(--positive);
+  --color-positive-soft: var(--positive-soft);
+  --color-negative: var(--negative);
+  --color-negative-soft: var(--negative-soft);
+  --color-warning: var(--warning);
+  --color-warning-soft: var(--warning-soft);
   --font-sans:
     ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
 }
 
 html {
   -webkit-text-size-adjust: 100%;
+  scroll-padding-top: 4.5rem;
 }
 
 body {
   background: var(--background);
   color: var(--foreground);
   font-family: var(--font-sans);
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Amounts line up in columns and never jitter while typing. */
+.num {
+  font-variant-numeric: tabular-nums;
+}
+
+/* One visible, consistent focus ring for every interactive element. */
+:where(a, button, input, select, textarea, summary):focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* Inputs: 16px text on phones so iOS does not zoom the page when one is focused. */
+input,
+select,
+textarea {
+  font-size: 1rem;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  ::before,
+  ::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
 }
