@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { resetLedger, isLocalDatabaseUrl } from "./seed";
+import { assertLocalDatabase, isLocalDatabaseUrl, resetLedger, seedDevelopmentData } from "./seed";
 import type { Database } from "./client";
 
 describe("isLocalDatabaseUrl", () => {
@@ -34,5 +34,25 @@ describe("resetLedger", () => {
     await expect(
       resetLedger(db, "postgres://u:p@ep-x.ap-southeast-1.aws.neon.tech/neondb"),
     ).rejects.toThrow(/not local/);
+  });
+});
+
+describe("seedDevelopmentData", () => {
+  it("refuses a remote database without writing anything", async () => {
+    const db = {
+      insert: () => Promise.reject(new Error("must not run")),
+    } as unknown as Database;
+    await expect(
+      seedDevelopmentData(db, "postgres://u:p@ep-x.ap-southeast-1.aws.neon.tech/neondb"),
+    ).rejects.toThrow(/not local/);
+  });
+});
+
+describe("assertLocalDatabase", () => {
+  it("names the refused action and passes local databases", () => {
+    expect(() => assertLocalDatabase("postgres://u:p@db.example.com/x", "do a thing")).toThrow(
+      /Refusing to do a thing/,
+    );
+    expect(() => assertLocalDatabase("postgres://u:p@localhost/x", "do a thing")).not.toThrow();
   });
 });

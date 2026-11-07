@@ -110,7 +110,7 @@ async function addDemoData(): Promise<void> {
 
 try {
   if (args.has("--reset") || args.has("--demo")) await resetLedger(db, connectionString);
-  await seedDevelopmentData(db);
+  await seedDevelopmentData(db, connectionString);
   if (args.has("--demo")) await addDemoData();
   console.log(
     `Seeded ${String(SEED_MEMBERS.length)} members in the trip group${args.has("--demo") ? " with demo expenses" : ""}.`,
