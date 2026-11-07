@@ -60,6 +60,8 @@ export interface MemberBalance {
 export interface ExpenseInReportingCurrency {
   readonly totalMinor: Minor;
   readonly source: ConversionSource;
+  /** Whether the shown or the billed amount was converted. */
+  readonly basis: "shown" | "billed";
   readonly rate?: Rate | undefined;
   readonly payers: readonly Allocation[];
   readonly shares: readonly Allocation[];
@@ -140,6 +142,7 @@ export function expenseInReportingCurrency(
   return {
     totalMinor: conversion.sgdMinor,
     source: conversion.source,
+    basis: conversion.basis,
     rate: conversion.rate,
     payers: spread(expense.payers),
     shares: spread(expense.shares),

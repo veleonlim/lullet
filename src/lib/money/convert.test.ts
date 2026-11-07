@@ -20,6 +20,7 @@ describe("toReportingCurrency precedence", () => {
     expect(toReportingCurrency({ ...base, currency: "SGD", amountMinor: 1234 }, book)).toEqual({
       sgdMinor: 1234,
       source: "native",
+      basis: "shown",
     });
   });
 
@@ -34,7 +35,7 @@ describe("toReportingCurrency precedence", () => {
       },
       book,
     );
-    expect(result).toEqual({ sgdMinor: 1234, source: "native" });
+    expect(result).toEqual({ sgdMinor: 1234, source: "native", basis: "shown" });
   });
 
   it("1. uses the billed SGD figure exactly, even when every rate exists", () => {
@@ -42,7 +43,7 @@ describe("toReportingCurrency precedence", () => {
       { ...base, billed: { amountMinor: 14_999, currency: "SGD" }, rate: parseRate("2") },
       book,
     );
-    expect(result).toEqual({ sgdMinor: 14_999, source: "billed" });
+    expect(result).toEqual({ sgdMinor: 14_999, source: "billed", basis: "billed" });
   });
 
   it("2. uses the rate set on the expense over the day override and market", () => {
@@ -64,12 +65,54 @@ describe("toReportingCurrency precedence", () => {
     expect(result.rate).toEqual(parseRate("1.44"));
   });
 
-  it("ignores a billed amount in another currency and converts the shown amount", () => {
+  it("converts a billed amount in another currency at the day's rate, keeping the shown amount for reference", () => {
+    // Shown as 100.00 EUR but the card was billed 98.40 CHF: convert the CHF figure.
     const result = toReportingCurrency(
-      { ...base, date: "2026-11-03", billed: { amountMinor: 9_999, currency: "CHF" } },
+      { ...base, billed: { amountMinor: 9_840, currency: "CHF" } },
       book,
     );
-    expect(result).toMatchObject({ source: "market", sgdMinor: 14_400 });
+    expect(result).toMatchObject({ source: "market", basis: "billed", sgdMinor: 15_353 }); // 98.40 x 1.5603
+    expect(result.rate).toEqual(parseRate("1.5603"));
+  });
+
+  it("looks the billed currency up in the day override, not the shown currency", () => {
+    const withOverride = createRateBook({
+      overrides: [{ date: "2026-11-02", currency: "CHF", rate: "1.6" }],
+      market: [
+        { date: "2026-11-02", currency: "CHF", rate: "1.5603" },
+        { date: "2026-11-02", currency: "EUR", rate: "1.4344" },
+      ],
+    });
+    const result = toReportingCurrency(
+      { ...base, billed: { amountMinor: 10_000, currency: "CHF" } },
+      withOverride,
+    );
+    expect(result).toMatchObject({ source: "day_override", basis: "billed", sgdMinor: 16_000 });
+  });
+
+  it("applies a rate set on the expense to the billed currency", () => {
+    const result = toReportingCurrency(
+      { ...base, billed: { amountMinor: 10_000, currency: "CHF" }, rate: parseRate("1.7") },
+      book,
+    );
+    expect(result).toMatchObject({ source: "expense_rate", basis: "billed", sgdMinor: 17_000 });
+  });
+
+  it("fails when the billed currency has no rate even if the shown currency does", () => {
+    expect(() =>
+      toReportingCurrency(
+        { ...base, date: "2026-11-03", billed: { amountMinor: 9_999, currency: "CHF" } },
+        book,
+      ),
+    ).toThrow(expect.objectContaining({ code: "missing_rate" }));
+  });
+
+  it("reports which amount was converted", () => {
+    expect(toReportingCurrency(base, book).basis).toBe("shown");
+    expect(
+      toReportingCurrency({ ...base, billed: { amountMinor: 14_999, currency: "SGD" } }, book)
+        .basis,
+    ).toBe("billed");
   });
 
   it("fails loudly when no rate exists, never guessing", () => {
@@ -107,7 +150,11 @@ describe("toReportingCurrency precedence", () => {
             },
             book,
           );
-          expect(withEverything).toEqual({ sgdMinor: billedMinor, source: "billed" });
+          expect(withEverything).toEqual({
+            sgdMinor: billedMinor,
+            source: "billed",
+            basis: "billed",
+          });
         },
       ),
     );

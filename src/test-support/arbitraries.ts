@@ -61,7 +61,7 @@ export function arbExpense(members: readonly MemberId[], id: string): fc.Arbitra
       date: fc.constantFrom("2026-11-01", "2026-11-02", "2026-11-03"),
       payerIds: arbSubset(members),
       shareIds: arbSubset(members),
-      withBilled: fc.boolean(),
+      billedCurrency: fc.constantFrom("none", "SGD", "CHF"),
       billedSgd: arbPositiveMinor,
     })
     .chain((e) =>
@@ -81,7 +81,10 @@ export function arbExpense(members: readonly MemberId[], id: string): fc.Arbitra
           date: e.date,
           amountMinor: e.amountMinor,
           currency: e.currency,
-          billed: e.withBilled ? { amountMinor: e.billedSgd, currency: "SGD" as const } : undefined,
+          billed:
+            e.billedCurrency === "none"
+              ? undefined
+              : { amountMinor: e.billedSgd, currency: e.billedCurrency },
           rate: undefined,
           payers,
           shares,

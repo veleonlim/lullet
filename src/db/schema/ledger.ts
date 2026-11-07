@@ -42,10 +42,10 @@ export const expenses = pgTable(
     spentOn: date("spent_on", { mode: "string" }).notNull(),
     amountMinor: minorUnits("amount_minor").notNull(),
     currency: currencyCode("currency").notNull(),
-    /** What the card was billed, when the receipt shows it (SGD when the bank converted). */
+    /** What the card was billed, when the receipt shows it. SGD is used as is; any other currency is converted at the day's rate in place of the shown amount. */
     billedAmountMinor: minorUnits("billed_amount_minor"),
     billedCurrency: currencyCode("billed_currency"),
-    /** SGD per 1 unit of `currency`, when set on this single expense. */
+    /** SGD per 1 unit of the billed currency if there is one, else of `currency`; set on this single expense. */
     rate: numeric({ precision: 20, scale: 10 }),
     splitMethod: splitMethod("split_method").notNull().default("equal"),
     createdBy: uuid("created_by")

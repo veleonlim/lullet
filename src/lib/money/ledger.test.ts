@@ -112,6 +112,22 @@ describe("computeBalances: worked examples", () => {
     expect(priced.payers).toEqual([{ memberId: "A", minor: 33_333 }]);
   });
 
+  it("prices an expense the bank billed in another currency from the billed amount", () => {
+    const train = expense({
+      id: "train",
+      amountMinor: 10_000, // shown as 100.00 EUR
+      billed: { amountMinor: 9_840, currency: "CHF" }, // card was charged 98.40 CHF
+      payers: only("A", 10_000),
+      shares: equalSplit(10_000, MEMBERS, MEMBERS),
+    });
+    const priced = expenseInReportingCurrency(train, rates, MEMBERS);
+    expect(priced).toMatchObject({ totalMinor: 15_353, source: "market", basis: "billed" });
+    expect(priced.shares.reduce((a, s) => a + s.minor, 0)).toBe(15_353);
+    // Native balances stay in the currency shown on the receipt.
+    const { byCurrency } = computeBalances({ members: MEMBERS, expenses: [train], rates });
+    expect(byCurrency.EUR?.map((b) => b.balanceMinor)).toEqual([7500, -2500, -2500, -2500]);
+  });
+
   it("settles up end to end: applying the suggested transfers leaves everyone square", () => {
     const first = computeBalances({ members: MEMBERS, expenses: reportExample, rates });
     const transfers = suggestTransfers(first.reporting);
