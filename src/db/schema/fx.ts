@@ -5,8 +5,8 @@ import { groups, users } from "./identity";
 
 /**
  * Market rates, stored the first time a day is needed so history never moves when
- * the market does. Immutable: rows are only ever inserted. `rate` is units of
- * `quote` per 1 unit of `base`.
+ * the market does. Immutable: rows are only ever inserted, never updated or deleted.
+ * `rate` is units of `quote` per 1 unit of `base`, and `quote` is always SGD.
  */
 export const fxRates = pgTable(
   "fx_rates",
@@ -26,6 +26,7 @@ export const fxRates = pgTable(
       "fx_rates_pair_check",
       sql`${t.base} ~ '^[A-Z]{3}$' AND ${t.quote} ~ '^[A-Z]{3}$' AND ${t.base} <> ${t.quote}`,
     ),
+    check("fx_rates_quote_check", sql`${t.quote} = 'SGD'`),
     check("fx_rates_rate_check", sql`${t.rate} > 0`),
     check("fx_rates_source_date_check", sql`${t.sourceDate} <= ${t.rateDate}`),
   ],
@@ -58,6 +59,7 @@ export const dailyRates = pgTable(
       "daily_rates_pair_check",
       sql`${t.base} ~ '^[A-Z]{3}$' AND ${t.quote} ~ '^[A-Z]{3}$' AND ${t.base} <> ${t.quote}`,
     ),
+    check("daily_rates_quote_check", sql`${t.quote} = 'SGD'`),
     check("daily_rates_rate_check", sql`${t.rate} > 0`),
   ],
 );

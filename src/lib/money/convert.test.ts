@@ -1,6 +1,11 @@
 import fc from "fast-check";
 import { describe, expect, it } from "vitest";
-import { createRateBook, toReportingCurrency, type ConvertibleAmount } from "./convert";
+import {
+  createRateBook,
+  rateEntryFromRow,
+  toReportingCurrency,
+  type ConvertibleAmount,
+} from "./convert";
 import { parseRate } from "./rate";
 import { arbPositiveMinor, arbTripCurrency } from "@/test-support/arbitraries";
 
@@ -227,5 +232,23 @@ describe("createRateBook", () => {
     expect(() =>
       createRateBook({ market: [{ date: "2026-11-02", currency: "EUR", rate: "x" }] }),
     ).toThrow(expect.objectContaining({ code: "invalid_rate" }));
+  });
+});
+
+describe("rateEntryFromRow", () => {
+  const row = { rateDate: "2026-11-02", base: "EUR", quote: "SGD", rate: "1.4344000000" };
+
+  it("reads an SGD quoted row into an entry the rate book can use", () => {
+    const rates = createRateBook({ market: [rateEntryFromRow(row)] });
+    expect(rates.market("2026-11-02", "EUR")).toEqual(parseRate("1.4344"));
+  });
+
+  it.each([
+    ["the inverse pair", { base: "SGD", quote: "EUR" }],
+    ["a third currency", { quote: "CHF" }],
+  ])("throws on %s instead of reading it as SGD per unit", (_label, patch) => {
+    expect(() => rateEntryFromRow({ ...row, ...patch })).toThrow(
+      expect.objectContaining({ code: "invalid_rate" }),
+    );
   });
 });

@@ -557,6 +557,7 @@ describe("exchange rates", () => {
   it("stores a market rate once and never changes it", async () => {
     await db.insert(s.fxRates).values(rate);
     await expectPgError(db.update(s.fxRates).set({ rate: "9.9" }), { code: PG.restrictViolation });
+    await expectPgError(db.delete(s.fxRates), { code: PG.restrictViolation });
     await db
       .insert(s.fxRates)
       .values({ ...rate, rate: "1.5" })
@@ -578,6 +579,27 @@ describe("exchange rates", () => {
   ])("rejects %s", async (_label, patch) => {
     await expectPgError(db.insert(s.fxRates).values({ ...rate, ...patch }), {
       code: PG.checkViolation,
+    });
+  });
+
+  it.each([
+    ["fx_rates", () => db.insert(s.fxRates).values({ ...rate, quote: "EUR", base: "SGD" })],
+    [
+      "daily_rates",
+      () =>
+        db.insert(s.dailyRates).values({
+          groupId: seed.groupId,
+          rateDate: "2026-11-02",
+          base: "SGD",
+          quote: "EUR",
+          rate: "0.66",
+          setBy: who(A),
+        }),
+    ],
+  ])("rejects a rate quoted in a currency other than SGD in %s", async (table, insert) => {
+    await expectPgError(insert(), {
+      code: PG.checkViolation,
+      constraint: `${table}_quote_check`,
     });
   });
 

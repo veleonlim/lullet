@@ -90,7 +90,8 @@ Money is always an integer count of minor units (`4850` plus `EUR`), stored as `
 - payer amounts add up to the expense amount, and so do share amounts, checked at commit by deferred constraint triggers. An expense therefore has to be written together with its payers and shares in one transaction
 - a payer, share, settlement party or uploader must belong to the group (composite foreign keys to `memberships`)
 - expenses and settlements are soft deleted (`deleted_at` and `deleted_by` set together) and cannot be removed
-- `audit_log` is append only and `fx_rates` rows never change, so history does not move
+- `audit_log` is append only and `fx_rates` rows can be neither changed nor deleted, so history does not move
+- stored rates (`fx_rates` and `daily_rates`) are always quoted in SGD
 - one active import per image hash per group, one default budget per group and one override per day
 
 Connection handling is host agnostic: `src/db/client.ts` uses plain `pg`, which works against Docker Postgres locally and in CI and against Neon's pooled (PgBouncer, transaction mode) endpoint in production. It uses no named prepared statements or session state, and no platform specific API.

@@ -1,4 +1,4 @@
-import { REPORTING_CURRENCY, type CurrencyCode } from "./currency";
+import { REPORTING_CURRENCY, assertCurrencyCode, type CurrencyCode } from "./currency";
 import { assertIsoDate, type IsoDate } from "./dates";
 import { MoneyError } from "./errors";
 import { assertPositiveMinor, type Minor } from "./integer";
@@ -74,6 +74,29 @@ function indexEntries(entries: readonly RateEntry[]): Map<string, Rate> {
     index.set(key(entry.date, entry.currency), rate);
   }
   return index;
+}
+
+/**
+ * Maps a stored `fx_rates` or `daily_rates` row to a RateEntry. Every stored rate
+ * is units of SGD per 1 unit of `base`, so a row quoted in anything else is refused.
+ */
+export function rateEntryFromRow(row: {
+  readonly rateDate: string;
+  readonly base: string;
+  readonly quote: string;
+  readonly rate: string;
+}): RateEntry {
+  if (row.quote !== REPORTING_CURRENCY) {
+    throw new MoneyError(
+      "invalid_rate",
+      `Stored rates must be quoted in ${REPORTING_CURRENCY}, got ${row.base}/${row.quote}`,
+    );
+  }
+  return {
+    date: assertIsoDate(row.rateDate, "rate date"),
+    currency: assertCurrencyCode(row.base),
+    rate: row.rate,
+  };
 }
 
 /** Builds an in-memory RateBook from rows read from the database. */

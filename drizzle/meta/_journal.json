@@ -22,6 +22,20 @@
       "when": 1794059978636,
       "tag": "0002_eminent_robbie_robertson",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1794060844242,
+      "tag": "0003_fx_rates_no_delete",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1794060844590,
+      "tag": "0004_rates_quoted_in_sgd",
+      "breakpoints": true
     }
   ]
 }

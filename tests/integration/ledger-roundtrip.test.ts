@@ -6,6 +6,7 @@ import {
   computeBalances,
   createRateBook,
   parseRate,
+  rateEntryFromRow,
   suggestTransfers,
   type LedgerExpense,
   type RateBook,
@@ -60,15 +61,13 @@ async function loadLedger(
       .filter((p) => p.expenseId === row.id)
       .map((p) => ({ memberId: p.userId, minor: p.amountMinor })),
   }));
-  const asEntry = (r: { rateDate: string; base: string; rate: string }) => ({
-    date: r.rateDate,
-    currency: r.base as "EUR",
-    rate: r.rate,
-  });
   return {
     members: memberRows.map((m) => m.userId),
     expenses,
-    rates: createRateBook({ market: marketRows.map(asEntry), overrides: dayRows.map(asEntry) }),
+    rates: createRateBook({
+      market: marketRows.map(rateEntryFromRow),
+      overrides: dayRows.map(rateEntryFromRow),
+    }),
   };
 }
 
