@@ -13,6 +13,8 @@ export const BOT_COMMANDS = [
     description:
       "Caption a screenshot in the group with it, e.g. /import split between mei and dad",
   },
+  { command: "split", description: "Add an expense by hand, step by step (private chat)" },
+  { command: "cancel", description: "Stop the /split in progress" },
   { command: "rate", description: "Set today's default rate, e.g. /rate EUR 1.51" },
   { command: "login", description: "Get a one-time link to the web dashboard" },
   { command: "alias", description: "Give a member another name for captions" },

@@ -208,6 +208,37 @@ describe("commands", () => {
   });
 });
 
+describe("/split and plain text", () => {
+  it("knows /split and /cancel, in a private chat and in the group", () => {
+    expect(classifyUpdate(textUpdate(dm(), "/split"), scope)).toMatchObject({
+      kind: "command",
+      name: "split",
+      origin: { chatKind: "private" },
+    });
+    expect(classifyUpdate(textUpdate(group(), "/split@lullet_bot"), scope)).toMatchObject({
+      kind: "command",
+      name: "split",
+      origin: { chatKind: "group" },
+    });
+    expect(classifyUpdate(textUpdate(dm(), "/cancel"), scope)).toMatchObject({
+      kind: "command",
+      name: "cancel",
+    });
+    expect(reason(textUpdate(group(), "/split@other_bot"))).toBe("not_addressed");
+  });
+
+  it("passes plain private text on as an answer, and still ignores chatter in the group", () => {
+    expect(classifyUpdate(textUpdate(dm(), "Dinner", { messageId: 7 }), scope)).toMatchObject({
+      kind: "text",
+      text: "Dinner",
+      messageId: 7,
+      origin: { userId: 1, chatKind: "private" },
+    });
+    expect(reason(textUpdate(group(), "Dinner"))).toBe("not_a_trigger");
+    expect(reason(textUpdate(dm(99), "Dinner"))).toBe("not_allowed");
+  });
+});
+
 describe("replies and buttons", () => {
   it("passes a private reply on, and ignores chatter", () => {
     expect(classifyUpdate(textUpdate(dm(), "60 40", { replyTo: 55 }), scope)).toMatchObject({
@@ -215,7 +246,7 @@ describe("replies and buttons", () => {
       text: "60 40",
       replyToMessageId: 55,
     });
-    expect(reason(textUpdate(dm(), "hello"))).toBe("not_a_trigger");
+    expect(reason(textUpdate(group(), "hello"))).toBe("not_a_trigger");
     expect(reason(textUpdate(group(), "60 40", { replyTo: 55 }))).toBe("not_a_trigger");
     expect(
       reason({

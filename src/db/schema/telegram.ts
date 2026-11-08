@@ -4,6 +4,8 @@ import {
   check,
   foreignKey,
   index,
+  integer,
+  jsonb,
   pgTable,
   primaryKey,
   text,
@@ -74,5 +76,41 @@ export const memberAliases = pgTable(
       "member_aliases_alias_check",
       sql`${t.alias} = lower(btrim(${t.alias})) AND char_length(${t.alias}) BETWEEN 2 AND 30`,
     ),
+  ],
+);
+
+/**
+ * A /split conversation in progress: the manual way to add an expense by answering the bot's
+ * questions in a private chat. Vercel functions keep no memory between requests, so the answers so
+ * far live here. A member has at most one open flow; starting /split again replaces it, and a flow
+ * nobody answers expires (`expires_at`). `step` and `state` are written by the bot and validated
+ * when read; `version` makes two taps that race on the same flow take turns.
+ */
+export const telegramSplitFlows = pgTable(
+  "telegram_split_flows",
+  {
+    id: uuid().primaryKey().defaultRandom(),
+    groupId: uuid("group_id")
+      .notNull()
+      .references(() => groups.id),
+    userId: uuid("user_id").notNull(),
+    chatId: bigint("chat_id", { mode: "number" }).notNull(),
+    /** The message that shows the current question, so a tap can be matched to it. */
+    messageId: bigint("message_id", { mode: "number" }),
+    step: text().notNull(),
+    state: jsonb().notNull(),
+    version: integer().notNull().default(0),
+    expiresAt: timestamptz("expires_at").notNull(),
+    createdAt: timestamptz("created_at").notNull().defaultNow(),
+    updatedAt: timestamptz("updated_at").notNull().defaultNow(),
+  },
+  (t) => [
+    unique("telegram_split_flows_member_key").on(t.groupId, t.userId),
+    foreignKey({
+      name: "telegram_split_flows_membership_fk",
+      columns: [t.groupId, t.userId],
+      foreignColumns: [memberships.groupId, memberships.userId],
+    }).onDelete("cascade"),
+    index("telegram_split_flows_expires_idx").on(t.expiresAt),
   ],
 );

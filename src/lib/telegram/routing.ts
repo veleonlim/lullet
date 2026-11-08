@@ -16,7 +16,16 @@ export interface BotScope {
   readonly botUsername: string | null;
 }
 
-export const COMMANDS = ["start", "help", "login", "rate", "alias", "import"] as const;
+export const COMMANDS = [
+  "start",
+  "help",
+  "login",
+  "rate",
+  "alias",
+  "import",
+  "split",
+  "cancel",
+] as const;
 export type CommandName = (typeof COMMANDS)[number];
 
 export type ChatKind = "private" | "group";
@@ -73,6 +82,13 @@ export type Intent =
       readonly messageId: number;
       readonly text: string;
       readonly replyToMessageId: number;
+    }
+  /** Plain text in a private chat that answers nothing in particular; /split's questions use it. */
+  | {
+      readonly kind: "text";
+      readonly origin: Origin;
+      readonly messageId: number;
+      readonly text: string;
     };
 
 const ignore = (reason: IgnoreReason): Intent => ({ kind: "ignore", reason });
@@ -193,6 +209,9 @@ function classifyMessage(message: Message, scope: BotScope): Intent {
       text,
       replyToMessageId: message.reply_to_message.message_id,
     };
+  }
+  if (origin.chatKind === "private") {
+    return { kind: "text", origin, messageId: message.message_id, text };
   }
   return ignore("not_a_trigger");
 }

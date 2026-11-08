@@ -25,6 +25,8 @@ describe("registering the bot", () => {
     expect(plan.commands).toBe(BOT_COMMANDS);
     expect(plan.commands.map((c) => c.command)).toEqual([
       "import",
+      "split",
+      "cancel",
       "rate",
       "login",
       "alias",

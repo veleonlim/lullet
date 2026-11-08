@@ -13,6 +13,7 @@ import { todayIn } from "@/lib/ledger/days";
 import { isCurrencyCode, formatRate, parseRate } from "@/lib/money";
 import { buildAliasTable, isEmptyPlan, normalizeAlias, parseCaption } from "@/lib/telegram/caption";
 import { decodeCallback, type CallbackAction } from "@/lib/telegram/callbacks";
+import { isSplitCallback } from "@/lib/telegram/split/callbacks";
 import { escapeHtml, clip, MESSAGE_LIMIT } from "@/lib/telegram/html";
 import { nudgeRowPercent, parseTypedPercents } from "@/lib/telegram/percent";
 import { applyCaptionPlan } from "@/lib/telegram/plan";
@@ -56,6 +57,7 @@ import {
   type DraftScreen,
 } from "./directory";
 import type { Notifier } from "./notify";
+import { cancelSplit, handleSplitCallback, handleSplitText, startSplit } from "./split";
 
 export interface BotDeps {
   readonly config: BotConfig;
@@ -83,6 +85,8 @@ const HELP = [
   "After it the caption can say who shares: <code>/import split between mei and dad</code>, <i>paid by mum</i>, <i>except dad</i>.",
   "",
   "/import - caption a screenshot with it in the group (in a private chat just send the screenshot)",
+  "/split - add an expense by hand: I ask for the title, amount, who paid, who shares and how it is split (private chat only)",
+  "/cancel - stop a /split in progress",
   "/rate EUR 1.51 - today's default rate for the group (SGD per 1 EUR)",
   "/login - a one-time link to the web dashboard, sent to you privately",
   "/alias mum mom - another name a caption can use for a member",
@@ -178,7 +182,7 @@ export async function processUpdate(deps: BotDeps, update: Update): Promise<Upda
   try {
     switch (intent.kind) {
       case "command":
-        await handleCommand(deps, member, intent);
+        await handleCommand(deps, member, intent, botUsername);
         break;
       case "image":
         await handleImage(deps, member, intent, botUsername);
@@ -188,6 +192,9 @@ export async function processUpdate(deps: BotDeps, update: Update): Promise<Upda
         break;
       case "reply":
         await handleReply(deps, member, intent);
+        break;
+      case "text":
+        await handleSplitText(deps, member, intent.origin, intent.messageId, intent.text);
         break;
     }
   } catch (error) {
@@ -205,7 +212,12 @@ export async function processUpdate(deps: BotDeps, update: Update): Promise<Upda
 
 type CommandIntent = Extract<Intent, { kind: "command" }>;
 
-async function handleCommand(deps: BotDeps, member: Member, intent: CommandIntent): Promise<void> {
+async function handleCommand(
+  deps: BotDeps,
+  member: Member,
+  intent: CommandIntent,
+  botUsername: string | null,
+): Promise<void> {
   const { origin } = intent;
   const reply = (html: string) =>
     deps.api.sendMessage(origin.chatId, html, {
@@ -222,6 +234,10 @@ async function handleCommand(deps: BotDeps, member: Member, intent: CommandInten
     case "import":
       await reply(SCREENSHOT_USAGE);
       return;
+    case "split":
+      return startSplit(deps, member, origin, intent.messageId, botUsername);
+    case "cancel":
+      return cancelSplit(deps, member, origin, intent.messageId);
     case "start":
     case "help":
     case null:
@@ -525,6 +541,10 @@ async function handleCallback(
     await safely("answer", () => api.answerCallback(intent.callbackQueryId, text, alert));
   };
 
+  if (isSplitCallback(intent.data)) {
+    await handleSplitCallback(deps, member, intent);
+    return;
+  }
   const decoded = decodeCallback(deps.config.webhookSecret, intent.data);
   if (!decoded.ok) {
     await answer("This button is no longer valid.", true);
@@ -727,7 +747,11 @@ type ReplyIntent = Extract<Intent, { kind: "reply" }>;
 async function handleReply(deps: BotDeps, member: Member, intent: ReplyIntent): Promise<void> {
   const tracked = await findTrackedDraft(deps.db, intent.origin.chatId, intent.replyToMessageId);
   const rowIndex = tracked ? parseRowView(tracked.view) : null;
-  if (!tracked || rowIndex === null) return;
+  if (!tracked || rowIndex === null) {
+    // Not an answer for a draft; it may answer a /split question.
+    await handleSplitText(deps, member, intent.origin, intent.messageId, intent.text);
+    return;
+  }
 
   const store = storeFor(deps, member);
   const view = await store.getDraft(tracked.importId);
