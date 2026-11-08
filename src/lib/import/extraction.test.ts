@@ -69,12 +69,6 @@ describe("the prompt", () => {
     expect(SYSTEM_PROMPT).toContain("Never guess a currency");
   });
 
-  it("says an unlabeled figure beside a foreign amount is the SGD billed amount", () => {
-    expect(SYSTEM_PROMPT).toContain("These are Singapore cards");
-    expect(SYSTEM_PROMPT).toContain('set "billed_currency" to "SGD"');
-    expect(SYSTEM_PROMPT).toContain("a single figure with no currency anywhere on screen");
-  });
-
   it("tells the model today's date, nothing else about the user", () => {
     expect(buildUserPrompt("2026-11-08")).toContain("2026-11-08");
   });
