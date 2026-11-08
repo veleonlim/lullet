@@ -194,6 +194,12 @@ export async function cancelSplit(
 ): Promise<void> {
   if (origin.chatKind !== "private") return;
   const found = await findFlow(deps.db, member, deps.now());
+  if (found.kind === "open" && found.flow.step === CONFIRMING) {
+    await deps.api.sendMessage(origin.chatId, "One moment, I am adding it.", {
+      replyToMessageId: messageId,
+    });
+    return;
+  }
   const shown = found.kind === "open" ? found.flow.messageId : null;
   const removed = await deleteMemberFlow(deps.db, member);
   if (shown !== null) {

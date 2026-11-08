@@ -642,6 +642,15 @@ describe("confirming", () => {
     expect(await flows()).toHaveLength(0);
   });
 
+  it("does not drop the flow on /cancel while the expense is being added", async () => {
+    await toSummary();
+    await db.update(s.telegramSplitFlows).set({ step: "confirming" });
+    await world.say(ALEX, "/cancel");
+    expect(last(ALEX).text).toBe("One moment, I am adding it.");
+    expect(await flows()).toHaveLength(1);
+    expect((await flows())[0]?.step).toBe("confirming");
+  });
+
   it("keeps the summary when no exchange rate can be had, and adds it on a retry", async () => {
     await split(ALEX);
     await answer(ALEX, "Souvenir");
