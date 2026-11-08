@@ -81,10 +81,20 @@ describe("typed percentages", () => {
     ["50, 30", { b: 5000, c: 3000, d: 2000 }],
     ["50% / 25%", { b: 5000, c: 2500, d: 2500 }],
     ["33.33 33.33 33.34", { b: 3333, c: 3333, d: 3334 }],
-    ["33,5 33,5", { b: 3350, c: 3350, d: 3300 }],
+    ["33.5 33.5", { b: 3350, c: 3350, d: 3300 }],
+    ["60,40", { b: 6000, c: 4000 }],
+    ["60/40", { b: 6000, c: 4000 }],
     ["100 0 0", { b: 10_000, c: 0, d: 0 }],
   ])("reads %j", (text, expected) => {
-    expect(parseTypedPercents(text, people)).toEqual({ ok: true, percents: expected });
+    const who = Object.keys(expected).length === 2 ? ["b", "c"] : people;
+    expect(parseTypedPercents(text, who)).toEqual({ ok: true, percents: expected });
+  });
+
+  it("treats a comma as a separator, never as a decimal point", () => {
+    expect(parseTypedPercents("33,5 33,5", people)).toEqual({
+      ok: false,
+      message: "Send 3 percentages, one per person in the order shown.",
+    });
   });
 
   it.each([

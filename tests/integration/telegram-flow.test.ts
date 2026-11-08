@@ -199,10 +199,17 @@ describe("a screenshot sent to the bot in a private chat", () => {
     // Typed percentages in reply to the editor message.
     await world.say(ALEX, "50 30", { replyTo: draft.messageId });
     expect(draft.text).toContain("Mei 50%, Mum 30%, Dad 20%");
+    expect(fake.lastTo(alexChat).text).toBe("Set to Mei 50%, Mum 30%, Dad 20%.");
     await world.say(ALEX, "70 70", { replyTo: draft.messageId });
     expect(fake.lastTo(alexChat).text).toBe("The percentages must add up to 100.");
-    // Paid by Mum as well.
-    await world.tap(ALEX, draft, "Mum");
+    // Paid by Mum as well: the payer button is the one with the payer marker, not the member toggle.
+    await world.tap(ALEX, draft, "· Mum");
+    expect(fake.hasButton(draft, "💳 Mum")).toBe(true);
+    const [saved] = await db.select({ draft: s.imports.draft }).from(s.imports);
+    expect((saved?.draft as { payerIds: string[] }).payerIds).toEqual(
+      expect.arrayContaining([world.userIds[ALEX], world.userIds[2]]),
+    );
+    expect((saved?.draft as { payerIds: string[] }).payerIds).toHaveLength(2);
     const [row] = await db.select().from(s.importRows).where(eq(s.importRows.position, 0));
     expect(row?.category).toBe("shopping");
     expect(row?.draftSplit).toMatchObject({ mode: "percent" });

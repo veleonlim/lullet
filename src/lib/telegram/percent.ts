@@ -49,12 +49,13 @@ export type TypedPercents =
   | { readonly ok: false; readonly message: string };
 
 /**
- * Reads typed percentages such as "60 40" or "50, 30" for the people on a row in order. Leaving
- * the last one out gives them the remainder. Two decimals are allowed ("33.33 33.33 33.34").
+ * Reads typed percentages such as "60 40", "60,40" or "60/40" for the people on a row in order.
+ * Spaces, commas and slashes separate values; only a dot is a decimal point. Leaving the last one
+ * out gives them the remainder. Two decimals are allowed ("33.33 33.33 33.34").
  */
 export function parseTypedPercents(text: string, members: readonly string[]): TypedPercents {
-  const numbers = [...text.matchAll(/(\d+(?:[.,]\d{1,2})?)\s*%?/g)].map((match) => {
-    const [whole = "0", fraction = ""] = (match[1] ?? "0").replace(",", ".").split(".");
+  const numbers = [...text.matchAll(/(\d+(?:\.\d{1,2})?)\s*%?/g)].map((match) => {
+    const [whole = "0", fraction = ""] = (match[1] ?? "0").split(".");
     return Number(whole) * 100 + Number(fraction.padEnd(2, "0"));
   });
   if (numbers.length === 0 || members.length === 0) {

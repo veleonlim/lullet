@@ -704,4 +704,13 @@ async function handleReply(deps: BotDeps, member: Member, intent: ReplyIntent): 
     message.text,
     message.keyboard,
   );
+  const echoed = resolved.split.members.map((id) => {
+    const name = group.find((p) => p.userId === id)?.displayName ?? "?";
+    return `${escapeHtml(name)} ${formatPercent(typed.percents[id] ?? 0)}`;
+  });
+  await say(`Set to ${echoed.join(", ")}.`);
+}
+
+function formatPercent(basisPoints: number): string {
+  return `${String(basisPoints / 100)}%`;
 }
