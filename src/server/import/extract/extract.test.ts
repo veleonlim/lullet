@@ -21,6 +21,8 @@ import {
   createExtractorFromEnv,
   EXTRACTION_MODELS,
   MAX_OUTPUT_TOKENS,
+  MAX_RETRIES,
+  REQUEST_TIMEOUT_MS,
   StubExtractor,
   type ExtractionRequest,
   type MessagesClient,
@@ -125,6 +127,24 @@ describe("what comes back", () => {
     expect(row?.amountMinor).toBe(4850);
     expect(row?.fieldStates.merchant).toBe("uncertain");
   });
+});
+
+describe("the time budget", () => {
+  // Vercel Hobby with Fluid compute: default and maximum function duration, in seconds.
+  const PLAN_MAX_DURATION_S = 300;
+  const routes = {
+    uploads: () => import("@/app/api/imports/route"),
+    "re-reads": () => import("@/app/api/imports/[id]/reread/route"),
+    "the Telegram webhook": () => import("@/app/api/telegram/webhook/route"),
+  };
+  for (const [name, load] of Object.entries(routes)) {
+    it(`gives ${name} time to record a failed read, within the plan limit`, async () => {
+      const { maxDuration } = await load();
+      const worstCaseS = (REQUEST_TIMEOUT_MS * (MAX_RETRIES + 1)) / 1000;
+      expect(maxDuration - worstCaseS).toBeGreaterThanOrEqual(30);
+      expect(maxDuration).toBeLessThanOrEqual(PLAN_MAX_DURATION_S);
+    });
+  }
 });
 
 describe("failures become an empty draft, never a partial import", () => {

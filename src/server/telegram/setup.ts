@@ -40,13 +40,20 @@ export function setupProblem(plan: SetupPlan): string | null {
 }
 
 export interface SetupResult {
+  /** The bot Telegram says the token belongs to. */
+  readonly botUsername: string;
   readonly webhookUrl: string;
   readonly pendingUpdates: number;
   readonly lastError: string | null;
 }
 
+/**
+ * Safe to run again and again: every call sets state rather than adding to it, and no pending
+ * update is dropped. `getMe` goes first so a wrong token fails before anything is changed.
+ */
 export async function runSetup(config: BotConfig, plan: SetupPlan): Promise<SetupResult> {
   const api = new Api(config.token, { apiRoot: config.apiRoot });
+  const me = await api.getMe();
   await api.setWebhook(plan.webhookUrl, {
     secret_token: config.webhookSecret,
     allowed_updates: [...plan.allowedUpdates],
@@ -57,6 +64,7 @@ export async function runSetup(config: BotConfig, plan: SetupPlan): Promise<Setu
   });
   const info = await api.getWebhookInfo();
   return {
+    botUsername: me.username,
     webhookUrl: info.url ?? "",
     pendingUpdates: info.pending_update_count,
     lastError: info.last_error_message ?? null,

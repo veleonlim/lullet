@@ -55,7 +55,11 @@ export interface BotWorld {
   draftMessage(index: number): FakeMessage;
 }
 
-export async function setupBotWorld(db: Database, fake: FakeTelegram): Promise<BotWorld> {
+export async function setupBotWorld(
+  db: Database,
+  fake: FakeTelegram,
+  options: { readonly dailyLimit?: number } = {},
+): Promise<BotWorld> {
   const { groupId, userIds } = await bootstrapGroup(
     {
       groupName: "Switzerland and Italy",
@@ -82,7 +86,7 @@ export async function setupBotWorld(db: Database, fake: FakeTelegram): Promise<B
     fx: new FakeFx(RATES),
     storage,
     extractor,
-    dailyLimit: 30,
+    dailyLimit: options.dailyLimit ?? 30,
     notifier: createNotifier({ db, api, config }),
     now: () => clock.now,
     sessionSecret: TEST_SECRET,

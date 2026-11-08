@@ -34,6 +34,7 @@ describe("registering the bot", () => {
     fake.reset();
     const result = await runSetup(config(), buildSetupPlan(config()));
     expect(result).toEqual({
+      botUsername: "lullet_test_bot",
       webhookUrl: "https://lullet.example.com/api/telegram/webhook",
       pendingUpdates: 0,
       lastError: null,

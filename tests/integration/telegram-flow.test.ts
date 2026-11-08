@@ -28,6 +28,35 @@ const alexChat = PEOPLE[ALEX].telegramId;
 const ledger = async () =>
   storeFor(db, { groupId: world.groupId, userIds: world.userIds }, { as: 0 }).listExpenses();
 
+describe("the caps on screenshots sent to the bot", () => {
+  it("refuses a file over 4 MB before downloading it or calling the model", async () => {
+    await world.photo(ALEX, { size: 4_000_001 });
+    expect(world.draftMessage(ALEX).text).toBe("That file is too large. The limit is 4 MB.");
+    expect(world.extractor.requests).toHaveLength(0);
+    expect(world.storage.objects.size).toBe(0);
+    expect(fake.callsTo("getFile")).toHaveLength(0);
+  });
+
+  it("stops a member who has used up the day's allowance, and only that member", async () => {
+    fake.reset();
+    await resetDatabase(db);
+    world = await setupBotWorld(db, fake, { dailyLimit: 2 });
+    await world.photo(ALEX);
+    await world.photo(ALEX);
+    expect(world.extractor.requests).toHaveLength(2);
+
+    await world.photo(ALEX);
+    expect(world.draftMessage(ALEX).text).toContain(
+      "You have reached today's limit of 2 screenshots",
+    );
+    expect(world.extractor.requests).toHaveLength(2);
+
+    await world.photo(MEI);
+    expect(world.draftMessage(MEI).text).toContain("Draft from your screenshot");
+    expect(world.extractor.requests).toHaveLength(3);
+  });
+});
+
 describe("a screenshot sent to the bot in a private chat", () => {
   it("acknowledges at once, then edits the same message into the draft summary", async () => {
     await world.photo(ALEX);
