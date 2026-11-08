@@ -176,7 +176,11 @@ test.describe("Telegram bot", () => {
     await expect
       .poll(() => fake.answers.map((a) => a.id))
       .toEqual(expect.arrayContaining(["a1", "a2"]));
-    expect(fake.answers.find((a) => a.id === "a2")?.text).toBe("Already added");
+    // Both taps are handled after their responses, so either may finish first: one adds, one is told so.
+    expect(["a1", "a2"].map((id) => fake.answers.find((a) => a.id === id)?.text).sort()).toEqual([
+      "Added 4",
+      "Already added",
+    ]);
     expect(await expenseCount(page)).toBe("4 expenses");
     expect(fake.messagesTo(GROUP_CHAT)).toHaveLength(1);
   });

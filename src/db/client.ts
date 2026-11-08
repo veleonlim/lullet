@@ -33,8 +33,9 @@ export function createDatabase(options: ConnectionOptions): DatabaseHandle {
     connectionTimeoutMillis: 10_000,
   });
   // An idle client can be dropped by the server or the pooler; that must not crash the process.
+  // Only the kind of failure is logged: a driver error can carry the connection string.
   pool.on("error", (error) => {
-    console.error("Unexpected error on an idle database connection", error);
+    console.error("Unexpected error on an idle database connection", error.name);
   });
   return { db: drizzle({ client: pool, schema, casing: "snake_case" }), pool };
 }

@@ -19,6 +19,15 @@ export interface MessagesClient {
   };
 }
 
+/**
+ * One request may take this long, and may be tried once more after a transient failure. The pair
+ * has to fit inside the 60 second `maxDuration` of the routes that call it (uploads, re-reads, the
+ * Telegram webhook), or the host would kill the function before a failed read could be recorded as
+ * an empty draft.
+ */
+export const REQUEST_TIMEOUT_MS = 28_000;
+export const MAX_RETRIES = 1;
+
 /** Plenty for 60 rows; hitting it means the answer is cut off and not to be trusted. */
 export const MAX_OUTPUT_TOKENS = 8000;
 
@@ -41,7 +50,7 @@ export class AnthropicExtractor implements ImageExtractor {
     if (this.client) return this.client;
     const apiKey = this.env.ANTHROPIC_API_KEY;
     if (!apiKey) return undefined;
-    this.client = new Anthropic({ apiKey, maxRetries: 2, timeout: 60_000 });
+    this.client = new Anthropic({ apiKey, maxRetries: MAX_RETRIES, timeout: REQUEST_TIMEOUT_MS });
     return this.client;
   }
 

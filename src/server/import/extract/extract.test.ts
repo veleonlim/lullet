@@ -21,6 +21,8 @@ import {
   createExtractorFromEnv,
   EXTRACTION_MODELS,
   MAX_OUTPUT_TOKENS,
+  MAX_RETRIES,
+  REQUEST_TIMEOUT_MS,
   StubExtractor,
   type ExtractionRequest,
   type MessagesClient,
@@ -124,6 +126,13 @@ describe("what comes back", () => {
     // The amount is still the one read from the amount text, not anything the text asked for.
     expect(row?.amountMinor).toBe(4850);
     expect(row?.fieldStates.merchant).toBe("uncertain");
+  });
+});
+
+describe("the time budget", () => {
+  it("lets a failed read be recorded before the 60 second function limit", () => {
+    // Every route that reads a screenshot has maxDuration = 60 (uploads, re-reads, the webhook).
+    expect(REQUEST_TIMEOUT_MS * (MAX_RETRIES + 1)).toBeLessThan(60_000 - 2_000);
   });
 });
 

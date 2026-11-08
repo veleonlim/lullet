@@ -65,6 +65,8 @@ export default defineConfig({
       TELEGRAM_BOT_TOKEN: process.env.TELEGRAM_BOT_TOKEN,
       APP_URL: baseURL,
       LULLET_DEV_AUTH: "1",
+      // The production start-up check wants real https settings; the suite uses made-up local ones.
+      LULLET_SKIP_ENV_CHECK: "1",
       LULLET_EXTRACTOR: "stub",
       LULLET_STUB_DIR: process.env.E2E_STUB_DIR,
       LULLET_STORAGE: "local",

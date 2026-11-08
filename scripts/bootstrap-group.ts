@@ -14,6 +14,7 @@ import { getDatabase } from "@/db/client";
 import { groups } from "@/db/schema";
 import { bootstrapGroup } from "@/lib/auth/db/members";
 import { getSessionSecret } from "@/lib/auth/config";
+import { describeDatabaseTarget } from "@/db/migration-target";
 
 async function main(): Promise<number> {
   const { values } = parseArgs({
@@ -36,6 +37,9 @@ async function main(): Promise<number> {
     return 1;
   }
 
+  if (process.env.DATABASE_URL) {
+    console.log(`Database: ${describeDatabaseTarget(process.env.DATABASE_URL)}`);
+  }
   const { db } = getDatabase();
   const existing = await db.select({ id: groups.id }).from(groups).limit(1);
   if (existing.length > 0) {

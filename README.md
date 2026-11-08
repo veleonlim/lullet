@@ -13,7 +13,7 @@ Telegram is the capture and edit surface; this web app is the database and dashb
 | Tests    | Vitest, fast-check (property tests), Playwright (phone and desktop projects)     |
 | Tooling  | pnpm, ESLint (typescript-eslint strict), Prettier                                |
 | CI       | GitHub Actions                                                                   |
-| Hosting  | Planned: Vercel Hobby, Neon Postgres, Cloudflare R2. Deployment is a later slice |
+| Hosting  | Vercel Hobby, Neon Postgres, Cloudflare R2; see [docs/LAUNCH.md](docs/LAUNCH.md) |
 
 All versions are pinned exactly in `package.json`. TypeScript is held at 6.0 because typescript-eslint does not support 7 yet.
 
@@ -54,7 +54,10 @@ First time running end to end tests: `pnpm exec playwright install chromium`.
 | `pnpm eval:screenshots`        | Manual accuracy eval of the screenshot reader against the live Claude API (needs `ANTHROPIC_API_KEY`; see [Screenshot import](#screenshot-import)) |
 | `pnpm auth:bootstrap`          | Create the group and link its members to Telegram accounts (once)                                                                                  |
 | `pnpm auth:mint-link`          | Print a one-time browser login link for a member                                                                                                   |
-| `pnpm telegram:setup`          | Register the webhook, commands and Mini App button with Telegram (`--dry-run` prints the plan only)                                                |
+| `pnpm telegram:setup`          | Register the webhook, commands and Mini App button with Telegram; safe to repeat (`--dry-run` prints the plan only, `--url` overrides `APP_URL`)   |
+| `pnpm check:env`               | Check a set of production settings with the rules the server applies at start-up; prints names, never values                                       |
+| `pnpm db:migrate:prod`         | Apply migrations through `DATABASE_URL_UNPOOLED` only, as a deliberate step (`--dry-run` counts what is waiting)                                   |
+| `pnpm export:csv`              | Save the whole ledger as CSV files on your computer (read-only; see [docs/BACKUPS.md](docs/BACKUPS.md))                                            |
 | `pnpm db:generate`             | Generate a migration from schema changes                                                                                                           |
 | `pnpm db:migrate`              | Apply migrations to `DATABASE_URL_UNPOOLED` or `DATABASE_URL`                                                                                      |
 | `pnpm db:check`                | Verify the migration history is consistent                                                                                                         |
@@ -77,25 +80,9 @@ No job calls a live external service; exchange rate tests replay recorded respon
 
 ## Environment and secrets
 
-`.env.example` lists every variable, with the ones not needed yet as commented placeholders. Secrets come only from the environment (Vercel project settings in production, `.env` locally, never committed). Nothing external has been created yet: the accounts and keys below are owned by the captain and are set up when the slice that needs them starts. Tests never need a real bot or real secrets.
+[docs/ENVIRONMENT.md](docs/ENVIRONMENT.md) is the one authoritative list of every variable: which service it comes from, whether it is required, an example and what it does. It mirrors the table in `src/lib/config/env.ts`, and a unit test fails if the table, that page, `.env.example` or the variables the code reads drift apart. Secrets come only from the environment (Vercel project settings in production, `.env` locally, never committed); for the one-off production commands (`db:migrate:prod`, `auth:bootstrap`, `telegram:setup`, `export:csv`, `check:env`) put them in `.env.production.local`, which is read after `.env` and ignored by git. Tests never need a real bot or real secrets.
 
-| Variable                                                               | Needed by | What it is                                                                                                                                                                   |
-| ---------------------------------------------------------------------- | --------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `DATABASE_URL`                                                         | now       | Postgres connection. In production, Neon's pooled connection string                                                                                                          |
-| `DATABASE_URL_UNPOOLED`                                                | now       | Optional. Neon's direct connection, preferred for migrations                                                                                                                 |
-| `DATABASE_POOL_MAX`                                                    | now       | Optional. Connections per instance, default 5; use 1 on serverless                                                                                                           |
-| `SESSION_SECRET`                                                       | now       | At least 32 characters. Keys the hash of session cookies and login links; changing it signs everyone out                                                                     |
-| `APP_URL`                                                              | now       | Public origin (`https://...`), used to build login links. Required in production                                                                                             |
-| `TELEGRAM_BOT_TOKEN`                                                   | now       | Bot token from BotFather. Verifies Mini App sign-in; also used by the bot                                                                                                    |
-| `TELEGRAM_WEBHOOK_SECRET`                                              | bot       | Secret token checked on every webhook call; also keys the nonce on inline buttons                                                                                            |
-| `TELEGRAM_GROUP_CHAT_ID`                                               | bot       | Numeric chat id of the one group the bot serves                                                                                                                              |
-| `TELEGRAM_BOT_USERNAME`, `TELEGRAM_API_ROOT`                           | bot       | Optional. The bot's username (otherwise asked once), and a fake Bot API address for tests                                                                                    |
-| `ANTHROPIC_API_KEY`                                                    | now       | Claude Console API key for screenshot reading, read only from the environment. Without it every upload becomes an empty draft to fill in by hand                             |
-| `S3_ENDPOINT`, `S3_BUCKET`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY` | now       | Cloudflare R2 (S3 compatible) private bucket for original screenshots. Required in production; in development files go to `LULLET_STORAGE_DIR` (default `.data/screenshots`) |
-| `CRON_SECRET`                                                          | now       | Bearer secret for the scheduled clean-up at `/api/cron/retention` (Vercel Cron sends it). With none set the route refuses every call                                         |
-| `IMPORT_DAILY_LIMIT`                                                   | now       | Optional. Screenshots one person may upload per rolling day, default 30                                                                                                      |
-| `LULLET_STORAGE`, `LULLET_STORAGE_DIR`                                 | tests     | `LULLET_STORAGE=local` allows local-file storage in a production build (the end to end suite uses it)                                                                        |
-| `LULLET_EXTRACTOR`, `LULLET_STUB_DIR`                                  | tests     | `LULLET_EXTRACTOR=stub` answers from canned JSON files instead of calling Claude (the end to end suite uses it)                                                              |
+**Start-up check.** In a production server (`NODE_ENV=production`), `src/instrumentation.ts` runs `assertProductionEnv` before the first request and refuses to start with one message that names every missing or malformed variable and never prints a value (it also refuses test-only switches such as `LULLET_EXTRACTOR=stub`). It is skipped during `next build`, in development and, through `LULLET_SKIP_ENV_CHECK`, in the end to end suite. `pnpm check:env` runs the same rules against a file before you deploy.
 
 ## Sign in with Telegram
 
@@ -114,7 +101,7 @@ Without a bot (local development, or a break-glass login), mint a link yourself:
 
 **Guarding pages**: `src/proxy.ts` sends cookie-less requests to `/signin` (and answers `401` for `/api/*`), and the `(app)` route group's layout checks the session for real. Pages, server actions and route handlers learn who is calling only through `getSession()` in `src/lib/auth/session.ts`, which returns `{ userId, groupId }` or `null`; the data access layer scopes every query by that `groupId`. `/api/health` and the sign-in routes are public.
 
-Not done here: rate limiting of the public auth routes (slice 7).
+The public auth routes need no request rate limit to resist guessing: a login link is 256 random bits that work once for ten minutes, Mini App data is an HMAC that must verify against the bot token, and both then need an allowlisted Telegram id. The limits that do cost money are enforced (see [Hardening](#hardening-and-deployment)).
 
 ## Database
 
@@ -211,7 +198,7 @@ Buttons carry only a short action code, the draft id and an HMAC nonce (under 64
 
 **Notifications (decision D6).** Confirming an import or adding an expense on the web posts a short summary to the group; editing or deleting an expense, or undoing an import, sends a private message to each member who was part of it. All best effort: a member who never pressed Start in the bot, or Telegram being down, never fails the change.
 
-**Setting it up (once the captain has a bot).** Create the bot with BotFather, add it to the group, and set `TELEGRAM_BOT_TOKEN`, `TELEGRAM_WEBHOOK_SECRET` (`openssl rand -hex 32`), `TELEGRAM_GROUP_CHAT_ID` and `APP_URL` (public https) in the environment, plus `pnpm auth:bootstrap` for the four members. Then:
+**Setting it up.** The step by step version for the owner is [docs/LAUNCH.md](docs/LAUNCH.md). Create the bot with BotFather, add it to the group, and set `TELEGRAM_BOT_TOKEN`, `TELEGRAM_WEBHOOK_SECRET` (`openssl rand -hex 32`), `TELEGRAM_GROUP_CHAT_ID` and `APP_URL` (public https) in the environment, plus `pnpm auth:bootstrap` for the four members. Then:
 
 ```sh
 pnpm telegram:setup --dry-run   # print the webhook, Mini App address and commands, call nothing
@@ -222,22 +209,36 @@ Each member presses Start in a private chat with the bot once, so it can message
 
 **Tests.** Unit tests (`src/lib/telegram`, `src/server/telegram`) cover update routing and the allowlist, callback data and nonces, caption parsing, percentages, and rendering including the 4096 cap. Integration tests (`tests/integration/telegram-*.test.ts`) run the bot against real Postgres and a fake Bot API server (`src/test-support/fake-telegram.ts`, which also enforces the 4096 cap). Playwright (`tests/e2e/telegram.spec.ts`) POSTs simulated updates to the running app's webhook: photo, draft, edit a row, confirm, undo, non-uploader Confirm rejected, unknown users and chats ignored, `/rate`, `/login`, the Mini App launch and the notifications. Nothing calls a real bot or the network; set `E2E_FAKE_TELEGRAM_PORT` if the default (`PORT` + 11) is taken.
 
+## Hardening and deployment
+
+The launch runbook for the owner is [docs/LAUNCH.md](docs/LAUNCH.md); backups are in [docs/BACKUPS.md](docs/BACKUPS.md).
+
+- **Vercel** (`vercel.json`): framework and build command, functions in `fra1` (next to the Neon database in Frankfurt), and one Vercel Cron entry, `/api/cron/retention` once a day (the Hobby plan allows nothing more frequent). A unit test fails if a route under `/api/cron` has no schedule. The routes that read screenshots set `maxDuration = 60` (uploads, re-reads, the Telegram webhook, whose deferred work runs inside it through `after()`), and the Claude client's timeout and retry (`REQUEST_TIMEOUT_MS`, `MAX_RETRIES`) are chosen to fit inside that. Core code stays host agnostic: the only host binding is `deferAfterResponse` in `src/server/telegram/runtime.ts`.
+- **Migrations are a deliberate step**, never run on a cold start: `pnpm db:migrate:prod` uses `DATABASE_URL_UNPOOLED` only, refuses a Neon pooler address, prints the host and database (no password) and supports `--dry-run`. The build does not touch the database.
+- **First-run data**: `pnpm auth:bootstrap` creates the group and the four members with their Telegram ids (it refuses to run twice). `pnpm db:seed` is for local development only and refuses a non-local database.
+- **Limits** (all enforced on the production paths, with tests): uploads are capped at 4 MB on the web route (before the body is read, and again on the file) and in the bot (by the size Telegram reports and again on the downloaded bytes); each person gets `IMPORT_DAILY_LIMIT` (30) uploads a rolling day on both paths, checked before any model call; a screenshot can be re-read twice; the webhook body is capped at 1 MB and needs the secret token; the retention route needs `CRON_SECRET`.
+- **Security headers** for every response come from `src/lib/security-headers.ts` through `next.config.ts`: a Content Security Policy that allows only this site (inline scripts and styles are allowed because Next.js writes its own; no other origin can be loaded), `frame-ancestors` limited to this site and Telegram's web clients (so the Mini App works and nobody else can frame the app), `nosniff`, `Referrer-Policy: no-referrer` (login links carry a token in the address), a Permissions Policy and HSTS. Development skips the policy and HSTS.
+- **Logs** carry the kind of failure only (`error.name`, `describeFailure`): never a screenshot, a model reply, a request body, a token or a connection string. `src/server/logging.test.ts` fails if server code logs a caught error object or a variable named like a secret.
+
 ## Layout
 
 ```
 src/app            Next.js routes: (app) pages that need a session, expenses, balances, settlements, dashboard, budget, rates, /imports, /signin, /api/auth, /api/imports, /api/telegram, /api/cron, /api/health, server actions
 src/proxy.ts       First gate: no session cookie, no protected page
 src/components     UI building blocks (app shell, forms, rows, icons); import/ holds the upload and review screens
-src/db             Drizzle schema, client, migration runner and the dev seed
+src/db             Drizzle schema, client, migration runner and guard, and the dev seed
 src/lib/auth       Telegram sign-in: init data check, login links, sessions (db/ holds the database code), getSession
 src/lib/ledger     Pure ledger logic: form validation, pricing, balances, audit diffs, formatting
 src/lib/dashboard  Pure dashboard logic: day bucketing, budget maths, re-pricing, trip range, chart scales, form validation
 src/lib/money      Money and ledger library
+src/lib/config     The table of environment variables and the production start-up check
+src/lib/export     CSV writing and the ledger export files
 src/lib/fx         Exchange rate client
 src/lib/import     Screenshot import logic: image checks, extraction schema, doubt states, duplicates, splits, drafts
 src/lib/telegram   Bot logic with no I/O: update routing and allowlist, callback data, captions, message rendering
 src/server         Group-scoped data access layer and per-request store; import/ holds screenshot storage, the model client, drafts and the retention job; telegram/ holds the bot
-scripts            db:seed, auth:bootstrap, auth:mint-link, eval:screenshots and telegram:setup
+scripts            db:seed, db:migrate:prod, auth:bootstrap, auth:mint-link, eval:screenshots, telegram:setup, check:env and export:csv
+docs               LAUNCH.md (owner runbook), ENVIRONMENT.md (every variable), BACKUPS.md
 src/test-support   Shared test generators
 tests/integration  Postgres integration tests
 tests/e2e          Playwright specs
