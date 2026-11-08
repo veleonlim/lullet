@@ -351,13 +351,13 @@ new `SESSION_SECRET` everyone is signed out and signs in again with `/login`. Fo
 
 ## If something goes wrong
 
-| What you see                                               | What to do                                                                                                                  |
-| ---------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
-| The site shows an error and Logs say `lullet cannot start` | A setting is missing or wrong; the log names it. Fix it in Vercel, redeploy.                                                |
-| `/login` gets no answer from the bot                       | Run `pnpm telegram:setup` again and read its last line. Check `APP_URL`, and that the webhook secret is the same in Vercel. |
-| "This Telegram account is not on the list"                 | The numeric id given in step 6.2 is wrong. The owner fixes it on the **Members** page.                                      |
-| Screenshots come back as empty drafts                      | `ANTHROPIC_API_KEY` is missing, wrong or out of credit. Check the Claude Console.                                           |
-| "That file is too large"                                   | Limit is 4 MB. Take a screenshot instead of a camera photo.                                                                 |
-| "You have reached today's limit"                           | 30 screenshots per person per day. Try tomorrow or raise `IMPORT_DAILY_LIMIT`.                                              |
-| `pnpm check:env` complains about a value                   | It says which one and why; it never shows the value. Re-copy it from the service.                                           |
-| Pages are slow after being idle                            | Neon's free database wakes from sleep; the first request takes a second or two.                                             |
+| What you see                                               | What to do                                                                                                                                                                        |
+| ---------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| The site shows an error and Logs say `lullet cannot start` | A setting is missing or wrong; the log names it. Fix it in Vercel, redeploy.                                                                                                      |
+| `/login` gets no answer from the bot                       | Run `pnpm telegram:setup` again and read its last line. Check `APP_URL`, and that the webhook secret is the same in Vercel. Vercel Logs say why an update was dropped or refused. |
+| "This Telegram account is not on the list"                 | The numeric id given in step 6.2 is wrong. The owner fixes it on the **Members** page.                                                                                            |
+| Screenshots come back as empty drafts                      | `ANTHROPIC_API_KEY` is missing, wrong or out of credit. Check the Claude Console.                                                                                                 |
+| "That file is too large"                                   | Limit is 4 MB. Take a screenshot instead of a camera photo.                                                                                                                       |
+| "You have reached today's limit"                           | 30 screenshots per person per day. Try tomorrow or raise `IMPORT_DAILY_LIMIT`.                                                                                                    |
+| `pnpm check:env` complains about a value                   | It says which one and why; it never shows the value. Re-copy it from the service.                                                                                                 |
+| Pages are slow after being idle                            | Neon's free database wakes from sleep; the first request takes a second or two.                                                                                                   |
