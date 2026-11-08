@@ -12,7 +12,14 @@ export function POST(request: Request, context: { params: Promise<{ id: string }
       const { userId, groupId } = store.session;
       const view = await store.getDraft(id);
       // Members who shared in the removed expenses hear about it (decision D6).
-      if (view) notifyAfterResponse((bot) => bot.importUndone(groupId, userId, view.expenses));
+      if (view)
+        notifyAfterResponse((bot) =>
+          bot.importUndone(
+            groupId,
+            userId,
+            view.expenses.filter((e) => result.expenseIds.includes(e.id)),
+          ),
+        );
     }
     return json(result);
   });

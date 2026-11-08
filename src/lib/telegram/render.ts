@@ -363,7 +363,7 @@ export function renderDraft(input: RenderInput, screen: Screen): RenderedMessage
   if (view.status === "confirmed") return renderConfirmed(input);
   const text =
     view.status === "undone"
-      ? `Undone. ${String(view.expenses.length)} expense${view.expenses.length === 1 ? "" : "s"} removed from the ledger.`
+      ? "Undone. The expenses from this import were removed from the ledger."
       : view.status === "cancelled"
         ? "Discarded. Nothing was added."
         : "This draft expired after 24 hours. Send the screenshot again.";

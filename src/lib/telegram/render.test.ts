@@ -420,12 +420,7 @@ describe("closed drafts", () => {
       input(view([], { status: "undone", expenses: [expense("1"), expense("2")] })),
       { kind: "summary" },
     );
-    expect(undone.text).toBe("Undone. 2 expenses removed from the ledger.");
-    expect(
-      renderDraft(input(view([], { status: "undone", expenses: [expense("1")] })), {
-        kind: "summary",
-      }).text,
-    ).toContain("1 expense removed");
+    expect(undone.text).toBe("Undone. The expenses from this import were removed from the ledger.");
     expect(renderDraft(input(view([], { status: "cancelled" })), { kind: "summary" })).toEqual({
       text: "Discarded. Nothing was added.",
       keyboard: [],

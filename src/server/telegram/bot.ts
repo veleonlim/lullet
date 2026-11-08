@@ -519,7 +519,11 @@ async function handleCallback(
       const after = await store.getDraft(importId);
       if (after) await show(after, { kind: "summary" });
       if (expenseIds.length > 0 && after) {
-        await deps.notifier.importUndone(member.groupId, member.userId, after.expenses);
+        await deps.notifier.importUndone(
+          member.groupId,
+          member.userId,
+          after.expenses.filter((e) => expenseIds.includes(e.id)),
+        );
       }
       {
         await answer("Undone");
