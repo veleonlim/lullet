@@ -3,7 +3,7 @@ import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 import * as s from "@/db/schema";
 import { cancelImport, uploadScreenshot } from "@/server/import/service";
 import { runRetention } from "@/server/import/retention";
-import { LocalFileStorage } from "@/server/import/storage";
+import { LocalFileStorage, PostgresStorage } from "@/server/import/storage";
 import { makePng } from "@/test-support/images";
 import { extraction, transaction } from "@/test-support/extraction";
 import { closeTestDb, resetDatabase, seedGroup, testDb, type Seed } from "./helpers";
@@ -49,22 +49,22 @@ const record = async (id: string) => {
   return row;
 };
 
-describe("the 30 day retention job", () => {
-  it("deletes the original 30 days after confirm and keeps the extracted rows and expenses", async () => {
-    const view = await upload(1);
-    await world.store(0).confirm(view.id, unchanged(view));
+const NOTHING = { expiredDrafts: 0, deletedImages: 0, failedImages: 0, orphanedImages: 0 };
 
-    world.clock.now = new Date("2026-12-07T09:59:00Z"); // 29 days 23 hours 59 minutes later
-    expect(await retention()).toEqual({ expiredDrafts: 0, deletedImages: 0, failedImages: 0 });
+describe("the retention job", () => {
+  it("sweeps the original of an import that was confirmed but whose deletion did not happen, and keeps the rows and expenses", async () => {
+    const view = await upload(1);
+    // Confirmed straight through the store: nothing deleted the original.
+    await world.store(0).confirm(view.id, unchanged(view));
     expect(world.storage.objects.size).toBe(1);
 
-    world.clock.now = new Date("2026-12-08T10:00:00Z"); // exactly 30 days later
-    expect(await retention()).toEqual({ expiredDrafts: 0, deletedImages: 1, failedImages: 0 });
+    world.clock.now = new Date("2026-11-08T10:05:00Z"); // no 30 day wait any more
+    expect(await retention()).toEqual({ ...NOTHING, deletedImages: 1 });
     expect(world.storage.objects.size).toBe(0);
 
     const after = await record(view.id);
     expect(after.storageKey).toBeNull();
-    expect(after.imageDeletedAt?.toISOString()).toBe("2026-12-08T10:00:00.000Z");
+    expect(after.imageDeletedAt?.toISOString()).toBe("2026-11-08T10:05:00.000Z");
     expect(after.status).toBe("confirmed");
     expect(
       await db.select().from(s.importRows).where(eq(s.importRows.importId, view.id)),
@@ -80,20 +80,18 @@ describe("the 30 day retention job", () => {
     expect(log[0]).toMatchObject({ actorUserId: null, groupId: seed.groupId, entityId: view.id });
   });
 
-  it("also deletes the original of an import that was undone, 30 days after it was confirmed", async () => {
+  it("also deletes the original of an import that was undone", async () => {
     const view = await upload(2);
     await world.store(0).confirm(view.id, unchanged(view));
     await world.store(0).undo(view.id);
-    world.clock.now = new Date("2026-12-09T00:00:00Z");
     expect((await retention()).deletedImages).toBe(1);
   });
 
   it("is safe to run again", async () => {
     const view = await upload(3);
     await world.store(0).confirm(view.id, unchanged(view));
-    world.clock.now = new Date("2026-12-20T00:00:00Z");
     expect((await retention()).deletedImages).toBe(1);
-    expect(await retention()).toEqual({ expiredDrafts: 0, deletedImages: 0, failedImages: 0 });
+    expect(await retention()).toEqual(NOTHING);
     expect(
       await db.select().from(s.auditLog).where(eq(s.auditLog.action, "import.image_deleted")),
     ).toHaveLength(1);
@@ -102,7 +100,7 @@ describe("the 30 day retention job", () => {
   it("expires drafts after 24 hours, discards their rows and deletes their originals", async () => {
     const view = await upload(4);
     world.clock.now = new Date("2026-11-09T10:00:01Z");
-    expect(await retention()).toEqual({ expiredDrafts: 1, deletedImages: 1, failedImages: 0 });
+    expect(await retention()).toEqual({ ...NOTHING, expiredDrafts: 1, deletedImages: 1 });
     expect((await record(view.id)).status).toBe("expired");
     expect(await db.select().from(s.importRows).where(eq(s.importRows.importId, view.id))).toEqual(
       [],
@@ -111,14 +109,11 @@ describe("the 30 day retention job", () => {
     expect(await storeFor(db, seed).listExpenses()).toEqual([]);
   });
 
-  it("only touches what is due: a recent import keeps its original", async () => {
+  it("leaves the original of an open draft alone", async () => {
     const draft = await upload(5);
-    const confirmed = await upload(6);
-    await world.store(0).confirm(confirmed.id, unchanged(confirmed));
-    world.clock.now = new Date("2026-11-20T10:00:00Z");
-    expect(await retention()).toEqual({ expiredDrafts: 1, deletedImages: 1, failedImages: 0 });
-    expect((await record(draft.id)).status).toBe("expired");
-    expect((await record(confirmed.id)).storageKey).not.toBeNull();
+    world.clock.now = new Date("2026-11-08T20:00:00Z");
+    expect(await retention()).toEqual(NOTHING);
+    expect((await record(draft.id)).storageKey).not.toBeNull();
     expect(world.storage.objects.size).toBe(1);
   });
 
@@ -142,11 +137,51 @@ describe("the 30 day retention job", () => {
     const real = world.storage.delete.bind(world.storage);
     world.storage.delete = (key: string) =>
       key === aKey ? Promise.reject(new Error("storage is down")) : real(key);
-    world.clock.now = new Date("2026-12-20T00:00:00Z");
     expect(await retention()).toMatchObject({ deletedImages: 1, failedImages: 1 });
     expect((await record(a.id)).storageKey).toBe(aKey);
     world.storage.delete = real;
     expect(await retention()).toMatchObject({ deletedImages: 1, failedImages: 0 });
+  });
+});
+
+describe("the retention job with screenshots kept in the database", () => {
+  const images = () => db.select().from(s.importImages);
+
+  it("deletes an image no import refers to once it is older than a draft's lifetime", async () => {
+    const database = new PostgresStorage(db);
+    await database.put("imports/lost/orphan.png", makePng(), "image/png");
+    const run = (at: string) => runRetention({ db, storage: database, now: () => new Date(at) });
+
+    // A draft being made right now has its image stored before its row exists: not touched.
+    const created = (await images())[0]?.createdAt ?? new Date();
+    expect(await run(new Date(created.getTime() + 23 * 3_600_000).toISOString())).toEqual(NOTHING);
+    expect(await images()).toHaveLength(1);
+
+    expect(await run(new Date(created.getTime() + 25 * 3_600_000).toISOString())).toEqual({
+      ...NOTHING,
+      orphanedImages: 1,
+    });
+    expect(await images()).toEqual([]);
+  });
+
+  it("leaves an image an import still refers to alone, whatever its age", async () => {
+    const database = new PostgresStorage(db);
+    world.extractor.enqueue(ok(extraction([transaction({})])));
+    const { importId } = await uploadScreenshot(
+      { ...world.as(0), storage: database },
+      { bytes: makePng({ seed: 40 }), source: "web" },
+    );
+    // The import is closed, but the database is "down" for deletes, so the image stays referenced.
+    const failing = { put: database.put.bind(database), get: database.get.bind(database) };
+    const stuck = { ...failing, delete: () => Promise.reject(new Error("down")) };
+    const far = new Date(Date.now() + 90 * 24 * 3_600_000);
+    expect(await runRetention({ db, storage: stuck, now: () => far })).toEqual({
+      ...NOTHING,
+      expiredDrafts: 1,
+      failedImages: 1,
+    });
+    expect(await images()).toHaveLength(1);
+    expect((await record(importId)).storageKey).not.toBeNull();
   });
 });
 
@@ -204,12 +239,16 @@ describe("the scheduled route", () => {
     const response = await call({ authorization: "Bearer right-secret-0123456789" });
     expect(response.status).toBe(200);
     expect(response.headers.get("cache-control")).toBe("no-store");
-    expect(await response.json()).toEqual({ expiredDrafts: 1, deletedImages: 1, failedImages: 0 });
+    expect(await response.json()).toEqual({
+      ...NOTHING,
+      expiredDrafts: 1,
+      deletedImages: 1,
+    });
     expect(await storage.get("imports/route/test.png")).toBeNull();
     expect((await record(stale?.id ?? "")).status).toBe("expired");
 
     const again = await call({ authorization: "Bearer right-secret-0123456789" }, "POST");
     expect(again.status).toBe(200);
-    expect(await again.json()).toEqual({ expiredDrafts: 0, deletedImages: 0, failedImages: 0 });
+    expect(await again.json()).toEqual(NOTHING);
   });
 });

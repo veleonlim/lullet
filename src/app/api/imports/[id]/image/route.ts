@@ -5,7 +5,7 @@ export const dynamic = "force-dynamic";
 
 /**
  * The original screenshot, served by the app itself to signed-in members of the group. The
- * bucket is private and no signed or public link is ever handed out.
+ * storage is private and no signed or public link is ever handed out.
  */
 export function GET(request: Request, context: { params: Promise<{ id: string }> }) {
   return withImports(request, { write: false }, async ({ store, storage }) => {

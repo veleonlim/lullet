@@ -18,11 +18,15 @@ const GOOD: Record<string, string> = {
   TELEGRAM_WEBHOOK_SECRET: "b".repeat(32),
   TELEGRAM_GROUP_CHAT_ID: "-1001234567890",
   ANTHROPIC_API_KEY: "sk-ant-api03-fake",
+  CRON_SECRET: "c".repeat(32),
+};
+
+/** The optional Cloudflare R2 settings, which are all or nothing. */
+const R2: Record<string, string> = {
   S3_ENDPOINT: "https://0123456789abcdef.r2.cloudflarestorage.com",
   S3_BUCKET: "lullet-screenshots",
   S3_ACCESS_KEY_ID: "access",
   S3_SECRET_ACCESS_KEY: "secret",
-  CRON_SECRET: "c".repeat(32),
 };
 
 const names = (env: Record<string, string | undefined>) =>
@@ -34,6 +38,28 @@ describe("checkProductionEnv", () => {
     expect(() => {
       assertProductionEnv(GOOD);
     }).not.toThrow();
+  });
+
+  it("needs no Cloudflare R2 setting: screenshots stay in the database", () => {
+    expect(checkProductionEnv(GOOD)).toEqual([]);
+    for (const name of Object.keys(R2)) {
+      expect(ENV_VARIABLES.find((variable) => variable.name === name)?.requirement).toBe(
+        "optional",
+      );
+    }
+  });
+
+  it("accepts a complete set of R2 settings", () => {
+    expect(checkProductionEnv({ ...GOOD, ...R2 })).toEqual([]);
+  });
+
+  it("reports the missing ones when R2 is only half set up", () => {
+    expect(names({ ...GOOD, S3_BUCKET: "lullet-screenshots" })).toEqual([
+      "S3_ENDPOINT",
+      "S3_ACCESS_KEY_ID",
+      "S3_SECRET_ACCESS_KEY",
+    ]);
+    expect(names({ ...GOOD, ...R2, S3_SECRET_ACCESS_KEY: "  " })).toEqual(["S3_SECRET_ACCESS_KEY"]);
   });
 
   it("accepts the optional values when they are well formed", () => {
@@ -82,7 +108,7 @@ describe("checkProductionEnv", () => {
     ["CRON_SECRET", "short"],
     ["IMPORT_DAILY_LIMIT", "-3"],
   ])("rejects a malformed %s (%s)", (name, value) => {
-    expect(names({ ...GOOD, [name]: value })).toEqual([name]);
+    expect(names({ ...GOOD, ...R2, [name]: value })).toEqual([name]);
   });
 
   it("refuses the test-only switches in production", () => {
@@ -94,7 +120,7 @@ describe("checkProductionEnv", () => {
     ] as const) {
       expect(names({ ...GOOD, [name]: value })).toEqual([name]);
     }
-    expect(names({ ...GOOD, LULLET_STORAGE: "s3", LULLET_EXTRACTOR: "claude" })).toEqual([]);
+    expect(names({ ...GOOD, LULLET_STORAGE: "postgres", LULLET_EXTRACTOR: "claude" })).toEqual([]);
   });
 });
 

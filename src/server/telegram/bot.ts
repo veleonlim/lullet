@@ -30,7 +30,12 @@ import {
   type Origin,
 } from "@/lib/telegram/routing";
 import { LedgerError } from "@/server/ledger";
-import { cancelImport, uploadScreenshot, type ImportDeps } from "@/server/import/service";
+import {
+  cancelImport,
+  confirmImport,
+  uploadScreenshot,
+  type ImportDeps,
+} from "@/server/import/service";
 import { DraftExpiredError, DuplicateImageError, ImportError } from "@/server/import/errors";
 import type { ImageExtractor } from "@/server/import/extract/types";
 import { createImportStore, type ImportStore } from "@/server/import/store";
@@ -554,7 +559,7 @@ async function handleCallback(
           await answer(`${blocker} Open it in the app to review.`, true);
           return;
         }
-        const result = await store.confirm(importId, unchanged(view));
+        const result = await confirmImport(importDepsFor(deps, member), importId, unchanged(view));
         const after = await store.getDraft(importId);
         if (after) await show(after, { kind: "summary" });
         if (result.added && after) {

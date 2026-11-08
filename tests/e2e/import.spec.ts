@@ -49,6 +49,14 @@ test.describe("screenshot import", () => {
     await expect(page.getByTestId("import-row")).toHaveCount(4);
     await expect(page.getByText("Read by Claude Haiku 5.5")).toBeVisible();
 
+    // The screenshot is shown beside the amounts (it is kept in the database during the review).
+    await page.getByText("Original screenshot").click();
+    const shown = page.getByRole("img", { name: "The uploaded screenshot" });
+    await expect(shown).toBeVisible();
+    await expect
+      .poll(() => shown.evaluate((img: HTMLImageElement) => img.naturalWidth))
+      .toBeGreaterThan(0);
+
     // Step 3: Alex is the payer and the rest share equally; Alex's own share is off.
     const paidBy = page.getByRole("group", { name: "Paid by" });
     await expect(paidBy.getByRole("button", { name: "Alex" })).toHaveAttribute(
@@ -113,8 +121,10 @@ test.describe("screenshot import", () => {
     await page.getByTestId("from-import").click();
     await expect(page).toHaveURL(new RegExp(`/imports/${id}$`));
 
-    // Confirming again (a second tap, a reload) adds nothing.
+    // Confirming again (a second tap, a reload) adds nothing. The screenshot went with the confirm.
     await page.goto(`/imports/${id}`);
+    await expect(page.getByText("The original screenshot has been deleted.")).toBeVisible();
+    expect((await page.request.get(`/api/imports/${id}/image`)).status()).toBe(404);
     await expect(page.getByRole("button", { name: "Review and add" })).toHaveCount(0);
     expect(await expenseCount(page)).toBe("4 expenses");
 

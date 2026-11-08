@@ -1,7 +1,7 @@
-import { and, eq, inArray, isNotNull, isNull, lte, or } from "drizzle-orm";
+import { and, eq, inArray, isNotNull, isNull, lte, notInArray } from "drizzle-orm";
 import type { Database } from "@/db/client";
 import * as s from "@/db/schema";
-import { retentionCutoff } from "@/lib/import/policy";
+import { DRAFT_TTL_HOURS } from "@/lib/import/policy";
 import type { ImageStorage } from "./storage/types";
 
 /**
@@ -9,8 +9,12 @@ import type { ImageStorage } from "./storage/types";
  * a group-scoped request: it works across all groups and acts as nobody.
  *
  *  1. Drafts past their 24 hours are expired and their rows discarded.
- *  2. Originals are deleted 30 days after the import was confirmed (or undone), and straight
- *     away for drafts that were cancelled or expired. The extracted rows always stay.
+ *  2. Originals are deleted as soon as an import is confirmed or a draft is cancelled, so this
+ *     sweeps up any that survived a failed deletion, plus those of drafts that just expired. The
+ *     extracted rows always stay.
+ *  3. Images in the database storage that no import refers to (an upload that died between
+ *     storing the image and saving the draft) are deleted once they are older than a draft's
+ *     lifetime.
  *
  * It is safe to run twice, and a failure on one image never stops the rest: that image is tried
  * again on the next run.
@@ -22,6 +26,7 @@ export interface RetentionResult {
   readonly expiredDrafts: number;
   readonly deletedImages: number;
   readonly failedImages: number;
+  readonly orphanedImages: number;
 }
 
 export async function runRetention(input: {
@@ -59,13 +64,7 @@ export async function runRetention(input: {
       and(
         isNotNull(s.imports.storageKey),
         isNull(s.imports.imageDeletedAt),
-        or(
-          inArray(s.imports.status, ["cancelled", "expired"]),
-          and(
-            inArray(s.imports.status, ["confirmed", "undone"]),
-            lte(s.imports.confirmedAt, retentionCutoff(at)),
-          ),
-        ),
+        inArray(s.imports.status, ["cancelled", "expired", "confirmed", "undone"]),
       ),
     )
     .limit(BATCH);
@@ -97,5 +96,26 @@ export async function runRetention(input: {
     });
     deletedImages += 1;
   }
-  return { expiredDrafts: stale.length, deletedImages, failedImages };
+
+  const orphaned = await db
+    .delete(s.importImages)
+    .where(
+      and(
+        lte(s.importImages.createdAt, new Date(at.getTime() - DRAFT_TTL_HOURS * 3_600_000)),
+        notInArray(
+          s.importImages.storageKey,
+          db
+            .select({ key: s.imports.storageKey })
+            .from(s.imports)
+            .where(isNotNull(s.imports.storageKey)),
+        ),
+      ),
+    )
+    .returning({ key: s.importImages.storageKey });
+  return {
+    expiredDrafts: stale.length,
+    deletedImages,
+    failedImages,
+    orphanedImages: orphaned.length,
+  };
 }

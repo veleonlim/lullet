@@ -23,7 +23,7 @@ export async function closeTestDb(): Promise<void> {
 /** Removes every row (TRUNCATE skips row triggers, so soft-delete-only tables can be reset). */
 export async function resetDatabase(db: Database): Promise<void> {
   await db.execute(
-    sql`TRUNCATE TABLE users, groups, fx_rates, telegram_updates RESTART IDENTITY CASCADE`,
+    sql`TRUNCATE TABLE users, groups, fx_rates, telegram_updates, import_images RESTART IDENTITY CASCADE`,
   );
 }
 

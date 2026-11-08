@@ -61,8 +61,8 @@ Amounts appear twice: as a normal decimal (`148.49`) and as exact whole minor un
 nothing is lost to rounding. Text that a spreadsheet could mistake for a formula is made safe with a
 leading apostrophe.
 
-Original screenshots are **not** in the export; they stay in the R2 bucket for 30 days after
-confirmation and are then deleted on purpose. The extracted rows are kept.
+Original screenshots are **not** in the export; they are deleted on purpose as soon as an import is
+added or discarded. The extracted rows are kept.
 
 **The files contain your family's spending and Telegram ids.** Keep them private: not in a shared
 folder, not in an email. The folder is created readable by you only.

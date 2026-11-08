@@ -1,6 +1,7 @@
 import { dailyWindowStart, MAX_UPLOAD_BYTES } from "@/lib/import/policy";
 import { imageExtension, inspectImage, sha256Hex, type ImageFailure } from "@/lib/import/image";
 import { todayIn } from "@/lib/ledger/days";
+import type { ConfirmResult, DraftEdit } from "@/lib/import";
 import type { DraftView } from "@/lib/import/view";
 import { DuplicateImageError, ImageGoneError, ImportError, UploadLimitError } from "./errors";
 import { EXTRACTION_MODELS, type ImageExtractor } from "./extract/types";
@@ -115,12 +116,33 @@ export async function rereadScreenshot(
   return { view, failed: !outcome.ok };
 }
 
+/**
+ * Adds the ticked rows to the ledger and deletes the original straight away: it was only kept so
+ * it could be shown beside the extracted amounts while the draft was reviewed. A repeated confirm
+ * adds nothing but retries a deletion that failed. If deleting fails the import still stands and
+ * the retention job deletes the original.
+ */
+export async function confirmImport(
+  deps: ImportDeps,
+  importId: string,
+  edit: DraftEdit,
+): Promise<ConfirmResult> {
+  const result = await deps.store.confirm(importId, edit);
+  const stored = await deps.store.imageInfo(importId);
+  if (stored) await deleteOriginal(deps, importId, stored.storageKey);
+  return result;
+}
+
 /** Discards a draft and deletes its original straight away (retention sweeps up if that fails). */
 export async function cancelImport(deps: ImportDeps, importId: string): Promise<void> {
   const { storageKey } = await deps.store.cancel(importId);
   if (storageKey === null) return;
+  await deleteOriginal(deps, importId, storageKey);
+}
+
+async function deleteOriginal(deps: ImportDeps, importId: string, key: string): Promise<void> {
   try {
-    await deps.storage.delete(storageKey);
+    await deps.storage.delete(key);
     await deps.store.markImageDeleted(importId);
   } catch {
     // The retention job deletes anything left behind.

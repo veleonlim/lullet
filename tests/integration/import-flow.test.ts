@@ -13,7 +13,13 @@ import {
   RereadLimitError,
   UploadLimitError,
 } from "@/server/import/errors";
-import { cancelImport, rereadScreenshot, uploadScreenshot } from "@/server/import/service";
+import { PostgresStorage } from "@/server/import/storage";
+import {
+  cancelImport,
+  confirmImport,
+  rereadScreenshot,
+  uploadScreenshot,
+} from "@/server/import/service";
 import { extraction, transaction, wireframeExtraction } from "@/test-support/extraction";
 import { makeJpeg, makePng, pngChunk } from "@/test-support/images";
 import { closeTestDb, resetDatabase, seedGroup, testDb, type Seed } from "./helpers";
@@ -600,6 +606,95 @@ describe("undo import", () => {
     await expect(upload()).rejects.toBeInstanceOf(DuplicateImageError);
     await world.store(A).undo(view.id);
     expect((await upload()).status).toBe("draft");
+  });
+});
+
+describe("confirming deletes the original", () => {
+  it("deletes the screenshot as soon as the rows are added, and keeps the rows and the ledger", async () => {
+    const view = await upload();
+    expect(view.imageAvailable).toBe(true);
+    expect(world.storage.objects.size).toBe(1);
+
+    const result = await confirmImport(world.as(A), view.id, unchanged(view));
+    expect(result.added).toBe(true);
+    expect(world.storage.objects.size).toBe(0);
+
+    const after = await world.store(A).getDraft(view.id);
+    expect(after?.status).toBe("confirmed");
+    expect(after?.imageAvailable).toBe(false);
+    expect(after?.rows).toHaveLength(4);
+    expect(await ledgerCount()).toBe(4);
+    const [record] = await db.select().from(s.imports).where(eq(s.imports.id, view.id));
+    expect(record).toMatchObject({ storageKey: null });
+    expect(record?.imageDeletedAt).toBeInstanceOf(Date);
+    expect(await world.store(A).imageInfo(view.id)).toBeNull();
+  });
+
+  it("still lets the import be undone afterwards: the ledger does not need the image", async () => {
+    const view = await upload();
+    await confirmImport(world.as(A), view.id, unchanged(view));
+    expect((await world.store(A).undo(view.id)).expenseIds).toHaveLength(4);
+    expect(await ledgerCount()).toBe(0);
+    expect((await world.store(A).getDraft(view.id))?.status).toBe("undone");
+  });
+
+  it("leaves the original alone while the draft is being reviewed, including a re-read", async () => {
+    const view = await upload();
+    await world.store(A).saveDraft(view.id, unchanged(view));
+    const { failed } = await rereadScreenshot(world.as(A), view.id);
+    expect(failed).toBe(false);
+    expect(world.storage.objects.size).toBe(1);
+    expect((await world.store(A).getDraft(view.id))?.imageAvailable).toBe(true);
+  });
+
+  it("keeps the original when the confirm is refused", async () => {
+    const view = await upload();
+    const none = {
+      ...unchanged(view),
+      rows: unchanged(view).rows.map((r) => ({ ...r, included: false })),
+    };
+    await expect(confirmImport(world.as(A), view.id, none)).rejects.toThrow();
+    await expect(confirmImport(world.as(B), view.id, unchanged(view))).rejects.toBeInstanceOf(
+      NotUploaderError,
+    );
+    expect(world.storage.objects.size).toBe(1);
+    expect(await ledgerCount()).toBe(0);
+  });
+
+  it("adds the rows even if the original cannot be deleted, and a repeated confirm retries it", async () => {
+    const view = await upload();
+    world.storage.failDeletes = true;
+    const first = await confirmImport(world.as(A), view.id, unchanged(view));
+    expect(first.added).toBe(true);
+    expect(world.storage.objects.size).toBe(1);
+    expect(await ledgerCount()).toBe(4);
+    expect((await world.store(A).getDraft(view.id))?.imageAvailable).toBe(true);
+
+    world.storage.failDeletes = false;
+    const again = await confirmImport(world.as(A), view.id, unchanged(view));
+    expect(again.added).toBe(false);
+    expect(await ledgerCount()).toBe(4);
+    expect(world.storage.objects.size).toBe(0);
+    expect((await world.store(A).getDraft(view.id))?.imageAvailable).toBe(false);
+  });
+
+  it("works end to end with the screenshot kept in the database", async () => {
+    const database = new PostgresStorage(db);
+    const deps = { ...world.as(A), storage: database };
+    const { importId } = await uploadScreenshot(deps, {
+      bytes: makePng({ seed: 91 }),
+      source: "web",
+    });
+    const view = await world.store(A).getDraft(importId);
+    if (!view) throw new Error("draft missing");
+    const stored = await database.get((await world.store(A).imageInfo(importId))?.storageKey ?? "");
+    expect(stored?.contentType).toBe("image/png");
+    expect(stored?.bytes.length).toBeGreaterThan(0);
+    expect(await db.select().from(s.importImages)).toHaveLength(1);
+
+    await confirmImport(deps, importId, unchanged(view));
+    expect(await db.select().from(s.importImages)).toEqual([]);
+    expect((await world.store(A).getDraft(importId))?.imageAvailable).toBe(false);
   });
 });
 
