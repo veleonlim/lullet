@@ -57,6 +57,13 @@
       "when": 1794126371001,
       "tag": "0007_trip_settings",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1794128754966,
+      "tag": "0008_telegram_bot",
+      "breakpoints": true
     }
   ]
 }

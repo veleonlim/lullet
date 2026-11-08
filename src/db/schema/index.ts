@@ -6,3 +6,4 @@ export * from "./fx";
 export * from "./identity";
 export * from "./imports";
 export * from "./ledger";
+export * from "./telegram";
