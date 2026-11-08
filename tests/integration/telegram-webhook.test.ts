@@ -1,4 +1,14 @@
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+  type MockInstance,
+} from "vitest";
 import { SECRET_HEADER } from "@/lib/telegram/secret";
 import { processUpdate } from "@/server/telegram/bot";
 import { handleWebhook, type WebhookRuntime } from "@/server/telegram/webhook";
@@ -36,7 +46,7 @@ beforeEach(async () => {
   };
 });
 
-let warn: ReturnType<typeof vi.spyOn>;
+let warn: MockInstance<typeof console.warn>;
 beforeEach(() => {
   warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
 });
