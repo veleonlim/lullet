@@ -122,9 +122,11 @@ export default async function DashboardPage({
               {sgd(sofar.spentMinor)}
             </p>
             <p className="num mt-0.5 text-sm text-muted">
-              {sofar.budgetMinor === null
-                ? `over ${String(sofar.days)} ${sofar.days === 1 ? "day" : "days"}`
-                : `of ${sgd(sofar.budgetMinor)} budget over ${String(sofar.days)} ${sofar.days === 1 ? "day" : "days"}`}
+              {sofar.days === 0
+                ? "The trip has not started yet."
+                : sofar.budgetMinor === null
+                  ? `over ${String(sofar.days)} ${sofar.days === 1 ? "day" : "days"}`
+                  : `of ${sgd(sofar.budgetMinor)} budget over ${String(sofar.days)} ${sofar.days === 1 ? "day" : "days"}`}
             </p>
           </div>
           {sofar.budgetMinor !== null ? <BudgetStatePill state={sofar.state} /> : null}
@@ -145,7 +147,7 @@ export default async function DashboardPage({
               {remaining < 0 ? `${sgd(-remaining)} over budget` : `${sgd(remaining)} left`}
             </p>
           </div>
-        ) : (
+        ) : model.hasBudget ? null : (
           <Notice>
             No daily budget yet.{" "}
             <Link href="/budget" className="font-semibold underline">

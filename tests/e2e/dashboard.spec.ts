@@ -299,6 +299,16 @@ test.describe("the daily budget", () => {
     await expect(page).toHaveURL(/\/budget$/);
   });
 
+  test("before the trip starts, a saved budget is not reported as missing", async ({ page }) => {
+    await setTrip(page, "2099-01-01", "2099-01-03");
+    await setDailyBudget(page, "300");
+    await page.goto("/dashboard");
+    await expect(page.getByTestId("summary")).toContainText("The trip has not started yet.");
+    await expect(page.getByTestId("spent-so-far")).toHaveText("S$0.00");
+    await expect(page.getByText("No daily budget yet.")).toHaveCount(0);
+    await expect(page.getByTestId("coming-up")).toContainText("3 more days to come");
+  });
+
   test("explains a mistake instead of saving it", async ({ page }) => {
     await page.goto("/budget");
     await page.getByLabel("Budget per day (SGD)").fill("abc");
