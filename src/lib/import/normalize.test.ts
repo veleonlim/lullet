@@ -1,3 +1,4 @@
+import fc from "fast-check";
 import { describe, expect, it } from "vitest";
 import { extraction, transaction, wireframeExtraction } from "@/test-support/extraction";
 import {
@@ -203,6 +204,75 @@ describe("billed amounts", () => {
     });
     expect(seed.issues).toEqual([]);
     expect(seed.fieldStates.amount).toBe("clear");
+  });
+
+  it("takes an unlabeled figure beside a foreign amount as the SGD the card was charged", () => {
+    // Trenitalia: "EUR 100" with a bare "144.26" in a Singapore card app.
+    for (const billed_currency of [null, "SGD"]) {
+      const seed = row({
+        merchant: "Trenitalia - Lefrecce Roma Rmit",
+        amount_text: "EUR 100",
+        amount_value: "100.00",
+        billed_amount_text: "144.26",
+        billed_amount_value: "144.26",
+        billed_currency,
+      });
+      expect(seed).toMatchObject({
+        amountMinor: 10000,
+        currency: "EUR",
+        billedAmountMinor: 14426,
+        billedCurrency: "SGD",
+        billedAmountText: "144.26",
+        included: true,
+        issues: [],
+      });
+      expect(seed.fieldStates.amount).toBe("clear");
+    }
+  });
+
+  it("keeps a billed currency the model reported over the SGD assumption", () => {
+    const seed = row({ billed_amount_text: "75.20", billed_currency: "CHF" });
+    expect(seed.billedCurrency).toBe("CHF");
+  });
+
+  it("still cannot read an unlabeled billed figure when there is no foreign amount to go by", () => {
+    for (const amount of [
+      { amount_text: "S$100.00", currency: "SGD" },
+      { amount_text: "100.00", currency: null, currency_confidence: "unreadable" as const },
+    ]) {
+      const seed = row({ ...amount, billed_amount_text: "144.26", billed_currency: null });
+      expect(seed.billedAmountMinor).toBeNull();
+      expect(seed.billedCurrency).toBeNull();
+      expect(seed.issues).toContain("billed_unreadable");
+    }
+  });
+
+  it("reads any unlabeled billed figure beside a foreign amount as SGD (property)", () => {
+    fc.assert(
+      fc.property(
+        fc.constantFrom("EUR", "CHF", "USD", "GBP"),
+        fc.integer({ min: 1, max: 99_999_999 }),
+        fc.integer({ min: 1, max: 99_999_999 }),
+        (currency, amountMinor, billedMinor) => {
+          const plain = (minor: number) =>
+            `${String(Math.trunc(minor / 100))}.${String(minor % 100).padStart(2, "0")}`;
+          const seed = row({
+            amount_text: `${currency} ${plain(amountMinor)}`,
+            amount_value: plain(amountMinor),
+            currency,
+            billed_amount_text: plain(billedMinor),
+            billed_amount_value: plain(billedMinor),
+            billed_currency: null,
+          });
+          // The same figure in the same currency adds nothing, so only SGD vs a foreign amount.
+          expect(seed.currency).toBe(currency);
+          expect(seed.amountMinor).toBe(amountMinor);
+          expect(seed.billedCurrency).toBe("SGD");
+          expect(seed.billedAmountMinor).toBe(billedMinor);
+          expect(seed.issues).not.toContain("billed_unreadable");
+        },
+      ),
+    );
   });
 
   it("drops a billed figure that repeats the amount", () => {
