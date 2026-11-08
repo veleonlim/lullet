@@ -16,12 +16,6 @@ export function budgetState(spentMinor: number, budgetMinor: number | null): Bud
   return spentMinor * 100 >= budgetMinor * NEAR_PERCENT ? "near" : "under";
 }
 
-/** Spent as a whole percentage of the budget (rounded down). Null without a budget or when the budget is zero. */
-export function percentOf(spentMinor: number, budgetMinor: number | null): number | null {
-  if (budgetMinor === null || budgetMinor <= 0) return null;
-  return Math.floor((spentMinor * 100) / budgetMinor);
-}
-
 export interface BudgetSettings {
   /** The group's daily budget in SGD minor units; null when none is set. */
   readonly defaultMinor: number | null;

@@ -31,9 +31,13 @@ test.describe("app shell", () => {
       "content",
       /width=device-width/,
     );
+    // The header and the page content share one column, capped at the width of the top nav.
     const box = await page.getByRole("main").boundingBox();
+    const header = await page.getByRole("banner").locator("> div").boundingBox();
     expect(box).not.toBeNull();
-    expect(box?.width ?? 0).toBeLessThanOrEqual(768);
+    expect(header).not.toBeNull();
+    expect(box?.width ?? 0).toBeLessThanOrEqual(1024);
+    expect(box?.width).toBe(header?.width);
   });
 
   test("loads without console errors or failed requests", async ({ signedInPage: page }) => {

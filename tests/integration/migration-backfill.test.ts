@@ -22,7 +22,7 @@ import {
  * over a database built to the previous migration and filled with such rows.
  */
 
-const LAST_BEFORE = "0006_trip_settings";
+const UNDER_TEST = "0007_trip_settings";
 
 interface Row {
   readonly label: string;
@@ -200,7 +200,7 @@ describe("the migration that stores the rate each amount was priced with", () =>
     const journal = JSON.parse(readFileSync(journalPath, "utf8")) as {
       entries: { tag: string }[];
     };
-    journal.entries = journal.entries.filter((entry) => entry.tag !== LAST_BEFORE);
+    journal.entries = journal.entries.filter((entry) => entry.tag !== UNDER_TEST);
     writeFileSync(journalPath, JSON.stringify(journal));
     await runMigrations(handle.db, folder);
 

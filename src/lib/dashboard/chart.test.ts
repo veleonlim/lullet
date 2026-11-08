@@ -1,6 +1,6 @@
 import fc from "fast-check";
 import { describe, expect, it } from "vitest";
-import { labelEvery, niceCeiling, ticks } from "./chart";
+import { labelEvery, niceCeiling } from "./chart";
 
 describe("niceCeiling", () => {
   it.each([
@@ -27,11 +27,7 @@ describe("niceCeiling", () => {
   });
 });
 
-describe("ticks and labels", () => {
-  it("spaces ticks evenly from zero to the ceiling", () => {
-    expect(ticks(20000, 4)).toEqual([0, 5000, 10000, 15000, 20000]);
-  });
-
+describe("labels", () => {
   it("prints every label for a week and thins them for longer trips", () => {
     expect(labelEvery(7)).toBe(1);
     expect(labelEvery(14)).toBe(2);

@@ -15,11 +15,6 @@ export function niceCeiling(max: number): number {
   return Math.round(10 * power);
 }
 
-/** Evenly spaced tick values from 0 to `ceiling` (inclusive). */
-export function ticks(ceiling: number, count = 4): number[] {
-  return Array.from({ length: count + 1 }, (_, i) => Math.round((ceiling * i) / count));
-}
-
 /** Which of `count` labels to print so they stay readable: every day for a week, then every nth, always the first. */
 export function labelEvery(count: number, maxLabels = 7): number {
   return Math.max(1, Math.ceil(count / maxLabels));

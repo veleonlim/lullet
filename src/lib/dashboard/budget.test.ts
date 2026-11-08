@@ -1,6 +1,6 @@
 import fc from "fast-check";
 import { describe, expect, it } from "vitest";
-import { budgetFor, budgetState, NEAR_PERCENT, percentOf, splitBudget } from "./budget";
+import { budgetFor, budgetState, NEAR_PERCENT, splitBudget } from "./budget";
 
 describe("budgetState", () => {
   it("is none without a budget", () => {
@@ -43,16 +43,6 @@ describe("budgetState", () => {
         },
       ),
     );
-  });
-});
-
-describe("percentOf", () => {
-  it("rounds down and is null without a usable budget", () => {
-    expect(percentOf(5000, 10000)).toBe(50);
-    expect(percentOf(3333, 10000)).toBe(33);
-    expect(percentOf(15000, 10000)).toBe(150);
-    expect(percentOf(100, null)).toBeNull();
-    expect(percentOf(100, 0)).toBeNull();
   });
 });
 
