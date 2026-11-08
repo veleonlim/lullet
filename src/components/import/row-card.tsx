@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { CATEGORIES, categoryLabel, formatDate, type FieldErrors, type Member } from "@/lib/ledger";
 import {
+  chargedCurrency,
   countedAmount,
   isBlocking,
   ISSUE_TEXT,
@@ -343,7 +344,7 @@ export function RowCard({
               <Field label="Charged in" htmlFor={`${id}-billed-currency`}>
                 <select
                   id={`${id}-billed-currency`}
-                  value={edit.billedCurrency}
+                  value={chargedCurrency(edit)}
                   onChange={(event) => {
                     onChange({ billedCurrency: event.target.value });
                   }}

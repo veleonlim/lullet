@@ -3,7 +3,7 @@ import { CATEGORY_IDS, isCategoryId, type CategoryId } from "@/lib/ledger/catego
 import type { ExpenseInput } from "@/lib/ledger/expense-form";
 import { MAX_DESCRIPTION_LENGTH, readPositiveAmount, type FieldErrors } from "@/lib/ledger/fields";
 import { formatPlainAmount } from "@/lib/ledger/format";
-import { isCurrencyCode, isIsoDate, type CurrencyCode } from "@/lib/money";
+import { isCurrencyCode, isIsoDate, REPORTING_CURRENCY, type CurrencyCode } from "@/lib/money";
 import { MAX_TRANSACTIONS } from "./extraction";
 import type { DraftRowSeed, FieldStates } from "./normalize";
 import { isBlocking } from "./normalize";
@@ -77,6 +77,13 @@ export function rowToEdit(row: DraftRow): RowEdit {
   };
 }
 
+/** The currency the charged amount is in: a figure typed with no currency picked is SGD. */
+export function chargedCurrency(edit: Pick<RowEdit, "billedAmount" | "billedCurrency">): string {
+  return edit.billedCurrency === "" && edit.billedAmount.trim() !== ""
+    ? REPORTING_CURRENCY
+    : edit.billedCurrency;
+}
+
 function withState(
   states: FieldStates,
   field: keyof FieldStates,
@@ -121,9 +128,8 @@ export function applyEdit(row: DraftRow, edit: RowEdit): DraftRow {
   if (amountMinor === null) states = withState(states, "amount", "unreadable");
   else if (amountMinor !== row.amountMinor) states = withState(states, "amount", "clear");
 
-  const billedCurrency: CurrencyCode | null = isCurrencyCode(edit.billedCurrency)
-    ? edit.billedCurrency
-    : null;
+  const chargedIn = chargedCurrency(edit);
+  const billedCurrency: CurrencyCode | null = isCurrencyCode(chargedIn) ? chargedIn : null;
   let billedAmountMinor: number | null = null;
   if (billedCurrency !== null && edit.billedAmount.trim() !== "") {
     const billed = readPositiveAmount(edit.billedAmount, billedCurrency);

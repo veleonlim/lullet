@@ -307,7 +307,9 @@ test.describe("screenshot import", () => {
     await expectNoSidewaysScroll(page);
     await row.getByLabel("Amount", { exact: true }).fill("120.00");
     await row.getByLabel("Currency").selectOption("CHF");
+    await row.getByLabel("Charged in").selectOption("");
     await row.getByLabel("Charged to your card (optional)").fill("172.50");
+    await expect(row.getByLabel("Charged in")).toHaveValue("SGD");
     await expect(row.getByTestId("row-amount")).toHaveText("S$172.50");
     await expect(row.getByTestId("row-receipt-amount")).toHaveText("CHF 120.00 on the receipt");
     await expect(page.getByTestId("save-state")).toHaveText("Saved");
