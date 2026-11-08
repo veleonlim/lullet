@@ -734,9 +734,7 @@ describe("confirming", () => {
     };
     const stuckConfirm = async (): Promise<FakeMessage> => {
       const summary = await toSummary();
-      await db
-        .update(s.telegramSplitFlows)
-        .set({ step: "confirming", updatedAt: world.clock.now });
+      await db.update(s.telegramSplitFlows).set({ step: "confirming", updatedAt: world.clock.now });
       return summary;
     };
 
