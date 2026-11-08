@@ -25,6 +25,8 @@ describe("registering the bot", () => {
     expect(plan.commands).toBe(BOT_COMMANDS);
     expect(plan.commands.map((c) => c.command)).toEqual([
       "import",
+      "split",
+      "cancel",
       "rate",
       "login",
       "alias",
@@ -52,10 +54,6 @@ describe("registering the bot", () => {
       allowed_updates: ["message", "callback_query"],
     });
     expect(fake.callsTo("setMyCommands")[0]?.params.commands).toHaveLength(BOT_COMMANDS.length);
-    // /split is the manual way to add an expense, /cancel stops it.
-    expect(BOT_COMMANDS.map((c) => c.command)).toEqual(
-      expect.arrayContaining(["split", "cancel", "rate", "login", "alias", "help"]),
-    );
     expect(fake.callsTo("setChatMenuButton")[0]?.params.menu_button).toEqual({
       type: "web_app",
       text: "Open lullet",
