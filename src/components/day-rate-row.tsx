@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState } from "react";
+import { useActionState, useState } from "react";
 import { describeCount } from "@/lib/dashboard";
 import { dayRateAction, type RateState } from "@/app/rates/actions";
 import { AmountInput, Field } from "./form-controls";
@@ -56,6 +56,12 @@ export function DayRateControls({
   settlementsAffected: number;
 }) {
   const [state, action, pending] = useActionState(dayRateAction, NOTHING);
+  const [rate, setRate] = useState(override ?? "");
+  const [seenOverride, setSeenOverride] = useState(override);
+  if (seenOverride !== override) {
+    setSeenOverride(override);
+    setRate(override ?? "");
+  }
   const id = `rate-${day}-${currency}`;
   const eligible = describeCount(affected, settlementsAffected);
 
@@ -76,7 +82,10 @@ export function DayRateControls({
         <AmountInput
           id={id}
           name="rate"
-          defaultValue={override ?? ""}
+          value={rate}
+          onChange={(event) => {
+            setRate(event.target.value);
+          }}
           placeholder={market ?? "e.g. 1.5340"}
           invalid={Boolean(state.errors.rate)}
           aria-describedby={`${id}-message`}

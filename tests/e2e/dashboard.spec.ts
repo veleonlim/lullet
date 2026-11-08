@@ -298,10 +298,18 @@ test.describe("the daily budget", () => {
     await page.getByLabel("Budget per day (SGD)").fill("abc");
     await page.getByRole("button", { name: "Save daily budget" }).click();
     await expect(page.getByText("Type just the number, e.g. 48.50")).toBeVisible();
+    await expect(page.getByLabel("Budget per day (SGD)")).toHaveValue("abc");
+    await page.getByLabel("Day", { exact: true }).fill("2026-11-04");
+    await page.getByLabel("Budget for that day (SGD)").fill("lots");
+    await page.getByRole("button", { name: "Set budget for this day" }).click();
+    await expect(page.getByLabel("Budget for that day (SGD)")).toHaveValue("lots");
+    await expect(page.getByLabel("Day", { exact: true })).toHaveValue("2026-11-04");
     await page.getByLabel("Last day").fill("2026-11-01");
     await page.getByLabel("First day").fill("2026-11-09");
     await page.getByRole("button", { name: "Save trip" }).click();
     await expect(page.getByText("The trip cannot end before it starts")).toBeVisible();
+    await expect(page.getByLabel("Last day")).toHaveValue("2026-11-01");
+    await expect(page.getByLabel("First day")).toHaveValue("2026-11-09");
   });
 });
 
@@ -449,6 +457,7 @@ test.describe("daily exchange rates", () => {
     await day.getByLabel("SGD per 1 EUR").fill("zero");
     await day.getByRole("button", { name: "Save rate" }).click();
     await expect(day.getByText(/Enter a rate like 1\.5340/)).toBeVisible();
+    await expect(day.getByLabel("SGD per 1 EUR")).toHaveValue("zero");
     await page.goto("/dashboard");
     await expect(dayRow(page, "2026-11-03").getByTestId("day-spent")).toHaveText("S$862.74");
   });

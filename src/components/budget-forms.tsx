@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState, useEffect, useRef } from "react";
+import { useActionState, useState } from "react";
 import { saveBudgetAction, saveTripAction, type SettingsState } from "@/app/budget/actions";
 import { AmountInput, Field, fieldClass } from "./form-controls";
 import { Button, Notice } from "./ui";
@@ -25,6 +25,7 @@ function Result({ state }: { state: SettingsState }) {
 /** The default daily budget for every day without a budget of its own. */
 export function DefaultBudgetForm({ initial }: { initial: string }) {
   const [state, action, pending] = useActionState(saveBudgetAction.bind(null, false), NOTHING);
+  const [amount, setAmount] = useState(initial);
   return (
     <form action={action} noValidate className="space-y-3">
       <Field
@@ -36,7 +37,10 @@ export function DefaultBudgetForm({ initial }: { initial: string }) {
         <AmountInput
           id="default-amount"
           name="amount"
-          defaultValue={initial}
+          value={amount}
+          onChange={(event) => {
+            setAmount(event.target.value);
+          }}
           placeholder="e.g. 250"
           invalid={Boolean(state.errors.amount)}
           aria-describedby="default-amount-message"
@@ -53,19 +57,28 @@ export function DefaultBudgetForm({ initial }: { initial: string }) {
 /** A budget for one particular day, instead of the default. */
 export function DayBudgetForm({ firstDay }: { firstDay: string }) {
   const [state, action, pending] = useActionState(saveBudgetAction.bind(null, true), NOTHING);
-  const formRef = useRef<HTMLFormElement>(null);
-  useEffect(() => {
-    if (state.saved) formRef.current?.reset();
-  }, [state]);
+  const [day, setDay] = useState(firstDay);
+  const [amount, setAmount] = useState("");
+  const [seen, setSeen] = useState(state);
+  if (seen !== state) {
+    setSeen(state);
+    if (state.saved) {
+      setDay(firstDay);
+      setAmount("");
+    }
+  }
   return (
-    <form ref={formRef} action={action} noValidate className="space-y-3">
+    <form action={action} noValidate className="space-y-3">
       <div className="grid gap-3 sm:grid-cols-2">
         <Field label="Day" htmlFor="override-day" error={state.errors.day}>
           <input
             id="override-day"
             name="day"
             type="date"
-            defaultValue={firstDay}
+            value={day}
+            onChange={(event) => {
+              setDay(event.target.value);
+            }}
             aria-invalid={Boolean(state.errors.day) || undefined}
             aria-describedby="override-day-message"
             className={fieldClass(Boolean(state.errors.day))}
@@ -79,6 +92,10 @@ export function DayBudgetForm({ firstDay }: { firstDay: string }) {
           <AmountInput
             id="override-amount"
             name="amount"
+            value={amount}
+            onChange={(event) => {
+              setAmount(event.target.value);
+            }}
             placeholder="e.g. 400"
             invalid={Boolean(state.errors.amount)}
             aria-describedby="override-amount-message"
@@ -101,6 +118,9 @@ export function TripForm({
   zones: readonly string[];
 }) {
   const [state, action, pending] = useActionState(saveTripAction, NOTHING);
+  const [tripStart, setTripStart] = useState(initial.tripStart ?? "");
+  const [tripEnd, setTripEnd] = useState(initial.tripEnd ?? "");
+  const [timeZone, setTimeZone] = useState(initial.timeZone);
   const options = zones.includes(initial.timeZone) ? zones : [initial.timeZone, ...zones];
   return (
     <form action={action} noValidate className="space-y-3">
@@ -110,7 +130,10 @@ export function TripForm({
             id="trip-start"
             name="tripStart"
             type="date"
-            defaultValue={initial.tripStart ?? ""}
+            value={tripStart}
+            onChange={(event) => {
+              setTripStart(event.target.value);
+            }}
             aria-invalid={Boolean(state.errors.tripStart) || undefined}
             aria-describedby="trip-start-message"
             className={fieldClass(Boolean(state.errors.tripStart))}
@@ -121,7 +144,10 @@ export function TripForm({
             id="trip-end"
             name="tripEnd"
             type="date"
-            defaultValue={initial.tripEnd ?? ""}
+            value={tripEnd}
+            onChange={(event) => {
+              setTripEnd(event.target.value);
+            }}
             aria-invalid={Boolean(state.errors.tripEnd) || undefined}
             aria-describedby="trip-end-message"
             className={fieldClass(Boolean(state.errors.tripEnd))}
@@ -137,7 +163,10 @@ export function TripForm({
         <select
           id="trip-zone"
           name="timeZone"
-          defaultValue={initial.timeZone}
+          value={timeZone}
+          onChange={(event) => {
+            setTimeZone(event.target.value);
+          }}
           aria-describedby="trip-zone-message"
           className={fieldClass(Boolean(state.errors.timeZone))}
         >
