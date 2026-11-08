@@ -194,13 +194,17 @@ describe("the migration that stores the rate each amount was priced with", () =>
     url.pathname = `/${name}`;
     handle = createDatabase({ connectionString: url.toString(), max: 2 });
 
-    // A copy of the migrations without the one under test, to build the database as it was before.
+    // A copy of the migrations up to, but not including, the one under test, to build the database as
+    // it was before. Later migrations are cut too: the migrator skips any migration older than the
+    // last one applied, so applying a later one first would make the full run skip the one under test.
     cpSync("drizzle", folder, { recursive: true });
     const journalPath = join(folder, "meta", "_journal.json");
     const journal = JSON.parse(readFileSync(journalPath, "utf8")) as {
       entries: { tag: string }[];
     };
-    journal.entries = journal.entries.filter((entry) => entry.tag !== UNDER_TEST);
+    const cut = journal.entries.findIndex((entry) => entry.tag === UNDER_TEST);
+    if (cut < 0) throw new Error(`migration ${UNDER_TEST} is not in the journal`);
+    journal.entries = journal.entries.slice(0, cut);
     writeFileSync(journalPath, JSON.stringify(journal));
     await runMigrations(handle.db, folder);
 

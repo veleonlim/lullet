@@ -20,7 +20,9 @@ export function proxy(request: NextRequest) {
 }
 
 export const config = {
-  // Everything except the public sign-in pages and routes, the health probe, the scheduled jobs
-  // (they carry their own secret) and static assets.
-  matcher: ["/((?!signin(?:/|$)|api/auth/|api/cron/|api/health$|_next/|icon\\.svg$).*)"],
+  // Everything except the public sign-in pages and routes, the health probe, the scheduled jobs and the
+  // Telegram webhook (they carry their own secret) and static assets.
+  matcher: [
+    "/((?!signin(?:/|$)|api/auth/|api/cron/|api/telegram/webhook$|api/health$|_next/|icon\\.svg$).*)",
+  ],
 };

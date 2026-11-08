@@ -29,6 +29,13 @@ process.env.E2E_STUB_DIR = path.join(e2eDataDir, "stub");
 process.env.E2E_STORAGE_DIR = path.join(e2eDataDir, "screenshots");
 process.env.E2E_CRON_SECRET = "e2e-cron-secret-0123456789";
 
+// Telegram bot: the Bot API is a fake server run by the tests themselves (tests/e2e/telegram.spec.ts),
+// so no real bot, token or network is involved. Its port is derived from PORT unless set.
+const fakeTelegramPort = Number(process.env.E2E_FAKE_TELEGRAM_PORT ?? port + 11);
+process.env.E2E_FAKE_TELEGRAM_PORT = String(fakeTelegramPort);
+process.env.E2E_TELEGRAM_WEBHOOK_SECRET = "e2e-webhook-secret-0123456789abcdef";
+process.env.E2E_TELEGRAM_GROUP_CHAT_ID = "-1009876543210";
+
 export default defineConfig({
   testDir: "./tests/e2e",
   globalSetup: "./tests/e2e/global-setup.ts",
@@ -63,6 +70,10 @@ export default defineConfig({
       LULLET_STORAGE: "local",
       LULLET_STORAGE_DIR: process.env.E2E_STORAGE_DIR,
       CRON_SECRET: process.env.E2E_CRON_SECRET,
+      TELEGRAM_WEBHOOK_SECRET: process.env.E2E_TELEGRAM_WEBHOOK_SECRET,
+      TELEGRAM_GROUP_CHAT_ID: process.env.E2E_TELEGRAM_GROUP_CHAT_ID,
+      TELEGRAM_API_ROOT: `http://127.0.0.1:${String(fakeTelegramPort)}`,
+      TELEGRAM_BOT_USERNAME: "lullet_test_bot",
     },
     reuseExistingServer: !isCI,
     timeout: 120_000,

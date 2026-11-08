@@ -10,6 +10,7 @@ import {
 } from "@/lib/ledger";
 import { LedgerError, RateUnavailableError } from "@/server/ledger";
 import { openStore } from "@/server/runtime";
+import { notifyAfterResponse } from "@/server/telegram/runtime";
 
 /** What a form action returns when it did not save: messages by field, plus a form level one. */
 export interface FormState {
@@ -57,16 +58,26 @@ export async function saveExpenseAction(
   );
   if (!checked.ok) return { errors: checked.errors };
 
+  const actorId = store.session.userId;
+  const groupId = store.session.groupId;
   let savedId: string;
   try {
     if (expenseId === null) {
-      savedId = (await store.createExpense(checked.value)).id;
+      const created = await store.createExpense(checked.value);
+      savedId = created.id;
+      // The group sees a short note about the new expense (decision D2).
+      notifyAfterResponse((bot) => bot.expenseAdded(groupId, actorId, created));
     } else {
       const expected = new Date(version ?? "");
       if (Number.isNaN(expected.getTime())) {
         return { errors: { form: "Reload the page to edit this expense." } };
       }
-      savedId = (await store.updateExpense(expenseId, checked.value, expected)).id;
+      const before = await store.getExpense(expenseId);
+      const updated = await store.updateExpense(expenseId, checked.value, expected);
+      savedId = updated.id;
+      // Members who are part of it hear about the edit (decision D6).
+      if (before)
+        notifyAfterResponse((bot) => bot.expenseEdited(groupId, actorId, before, updated));
     }
   } catch (error) {
     return describeFailure(error, "rate.rate");
@@ -77,7 +88,9 @@ export async function saveExpenseAction(
 
 export async function deleteExpenseAction(expenseId: string): Promise<void> {
   const store = await openStore();
-  await store.deleteExpense(expenseId);
+  const deleted = await store.deleteExpense(expenseId);
+  const { userId, groupId } = store.session;
+  notifyAfterResponse((bot) => bot.expenseDeleted(groupId, userId, deleted));
   refresh();
   redirect(`/expenses?removed=${expenseId}`);
 }
