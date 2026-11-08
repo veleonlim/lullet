@@ -112,6 +112,38 @@ describe("scoreImage", () => {
     expect(without.fields.billed.correct).toBe(1);
   });
 
+  it("scores a foreign amount with an unlabeled figure as amount 100 EUR billed 144.26 SGD", () => {
+    const trenitalia: Golden = {
+      transactions: [
+        {
+          merchant: "Trenitalia - Lefrecce Roma Rmit",
+          date: "2026-11-03",
+          amount: "100.00",
+          currency: "EUR",
+          billedAmount: "144.26",
+          billedCurrency: "SGD",
+          category: "transport",
+        },
+      ],
+    };
+    expect(goldenSchema.safeParse(trenitalia).success).toBe(true);
+    const read = normalizeTransaction(
+      transaction({
+        merchant: "Trenitalia - Lefrecce Roma Rmit",
+        amount_text: "EUR 100",
+        amount_value: "100.00",
+        billed_amount_text: "144.26",
+        billed_amount_value: "144.26",
+        billed_currency: null,
+        category: "transport",
+      }),
+      TODAY,
+    );
+    const summary = summarize([scoreImage(trenitalia, [read])]);
+    expect(summary.overall).toBe(100);
+    expect(summary.fields.billed).toMatchObject({ correct: 1, total: 1, silentErrors: 0 });
+  });
+
   it("treats an unparsable golden amount as never matching", () => {
     const odd: Golden = { transactions: [{ ...golden.transactions[0]!, amount: "lots" }] };
     expect(

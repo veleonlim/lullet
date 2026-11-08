@@ -57,6 +57,31 @@ export const AMBIGUOUS_RESPONSE = message(
   "end_turn",
 );
 
+/**
+ * A Singapore card app row: "Trenitalia - Lefrecce Roma Rmit" showing "EUR 100" and an unlabeled
+ * "144.26". The model read the bare figure as the billed amount but left its currency empty.
+ */
+export const FOREIGN_WITH_UNLABELED_BILLED_RESPONSE = message(
+  [
+    text(
+      JSON.stringify(
+        extraction([
+          transaction({
+            merchant: "Trenitalia - Lefrecce Roma Rmit",
+            category: "transport",
+            amount_text: "EUR 100",
+            amount_value: "100.00",
+            billed_amount_text: "144.26",
+            billed_amount_value: "144.26",
+            billed_currency: null,
+          }),
+        ]),
+      ),
+    ),
+  ],
+  "end_turn",
+);
+
 /** The model declined: no content at all. */
 export const REFUSED_RESPONSE = message([], "refusal");
 

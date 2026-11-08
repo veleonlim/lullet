@@ -3,6 +3,7 @@ import {
   isCurrencyCode,
   isIsoDate,
   parseAmount,
+  REPORTING_CURRENCY,
   type CurrencyCode,
   type IsoDate,
   type ParseResult,
@@ -14,7 +15,9 @@ import { dayDistance } from "./days";
  * Turns what the model read into draft rows, with the doubts our own checks add. Our code
  * re-reads every amount from the text shown on screen with the money library; where the model's
  * reading disagrees, or the text is ambiguous, the row is flagged for a person. Nothing is
- * silently fixed and no currency is ever guessed.
+ * silently fixed and no currency is ever guessed. The one standing rule is the group's: its cards
+ * are Singapore cards, so a figure with no currency next to a foreign amount is what the card
+ * was charged, in SGD (see `readBilled`).
  */
 
 /** How sure we are of one field of a row. */
@@ -214,10 +217,15 @@ function readBilled(
   if (text === null) return { text: null, minor: null, currency: null, issues: [] };
   const modelCurrency = asCurrency(tx.billed_currency);
   const alone = parseAmount(text);
+  // A billed figure with no currency of its own, beside an amount in another currency, is what
+  // the Singapore card was charged. With no foreign amount to go by, it stays unreadable.
+  const unlabeled: CurrencyCode | null =
+    amountCurrency !== null && amountCurrency !== REPORTING_CURRENCY ? REPORTING_CURRENCY : null;
+  const assumed = modelCurrency ?? unlabeled;
   const result = parsed(alone)
     ? alone
-    : alone.reason === "currency_unknown" && modelCurrency
-      ? parseAmount(text, { currency: modelCurrency })
+    : alone.reason === "currency_unknown" && assumed
+      ? parseAmount(text, { currency: assumed })
       : alone;
   if (!parsed(result) || result.minor <= 0) {
     return { text, minor: null, currency: null, issues: ["billed_unreadable"] };

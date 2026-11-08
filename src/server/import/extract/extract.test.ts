@@ -9,6 +9,7 @@ import { wireframeExtraction } from "@/test-support/extraction";
 import {
   AMBIGUOUS_RESPONSE,
   CLEAN_RESPONSE,
+  FOREIGN_WITH_UNLABELED_BILLED_RESPONSE,
   INJECTION_RESPONSE,
   MALFORMED_RESPONSE,
   MAX_TOKENS_RESPONSE,
@@ -96,6 +97,23 @@ describe("what comes back", () => {
       ["AMZN Mktp", 2399, "shopping"],
       ["Louvre", 6400, "sightseeing"],
     ]);
+  });
+
+  it("reads EUR 100 beside an unlabeled 144.26 as 100 EUR billed 144.26 SGD", async () => {
+    const outcome = await new AnthropicExtractor(
+      fakeClient(FOREIGN_WITH_UNLABELED_BILLED_RESPONSE).client,
+    ).extract(request());
+    if (!outcome.ok) throw new Error("expected ok");
+    const [row] = normalizeExtraction(outcome.extraction, "2026-11-08").rows;
+    expect(row).toMatchObject({
+      merchant: "Trenitalia - Lefrecce Roma Rmit",
+      amountMinor: 10000,
+      currency: "EUR",
+      billedAmountMinor: 14426,
+      billedCurrency: "SGD",
+      included: true,
+      issues: [],
+    });
   });
 
   it("flags the doubts in an ambiguous answer instead of fixing them", async () => {
