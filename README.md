@@ -120,7 +120,7 @@ Not done here: rate limiting of the public auth routes (slice 7).
 
 Schema lives in `src/db/schema/` and migrations in `drizzle/`. Run `pnpm db:generate` after changing the schema and commit the result; CI fails if the migrations and schema disagree.
 
-Tables: `users`, `groups` (with the trip's first and last day and time zone), `memberships` (with `is_owner`, at most one owner per group), `expenses`, `expense_payers`, `expense_shares`, `settlements`, `imports`, `import_rows`, `fx_rates` (stored market rates), `daily_rates` (per day default rate overrides), `budgets`, `audit_log`, `telegram_links`, `sessions` and `login_tokens`.
+Tables: `users`, `groups` (with the trip's first and last day and time zone), `memberships` (with `is_owner`, at most one owner per group), `expenses`, `expense_payers`, `expense_shares`, `settlements`, `imports`, `import_rows`, `fx_rates` (stored market rates), `daily_rates` (per day default rate overrides), `budgets`, `audit_log`, `telegram_links`, `sessions`, `login_tokens`, and for the bot `telegram_updates` (handled update ids), `telegram_drafts` (the chat message showing each draft) and `member_aliases` (extra caption names).
 
 Money is always an integer count of minor units (`4850` plus `EUR`), stored as `bigint`. The database itself enforces what it can, in `0000_core_schema.sql` and the hand written `0001_invariants.sql`:
 
@@ -199,7 +199,7 @@ Telegram is where screenshots are sent and edited; the web app stays the databas
 **Sending a screenshot.** Any photo (or image sent as a file) in the private chat with the bot is read. In the group a photo counts only when its caption is a command (`/split`) or mentions the bot; the draft is then sent to the sender privately and the group sees only a short note and, later, the confirmed result (decision D2). The bot answers at once with "Reading your screenshot..." and edits that same message into the draft summary when the read finishes:
 
 1. The summary lists each row (merchant, amount, category, a "check" or "needs input" mark, who shares when it differs), who paid, the total and each person's share, with buttons **Confirm N**, **Edit rows**, **Open in app** and **Cancel**. Confirm is offered only for a clean draft: 10 rows or fewer, no unreadable row, no possible duplicate, nothing that would fail to add. Anything else goes to **Open in app**. A message is capped at 4096 characters, so a long row list ends with a pointer to the app.
-2. **Edit rows** edits the message in place, one row at a time: include or leave out the row, per-row member toggles, Equal / Percent (5% buttons, or reply to the message with percentages like `60 40`; the last person takes the remainder), category, who paid, Prev / Next and Summary.
+2. **Edit rows** edits the message in place, one row at a time: include or leave out the row, per-row member toggles, Equal / Percent (5% buttons, or reply to the message with percentages like `60 40` or `60/40`, dot for decimals; the last person takes the remainder), category, who paid, Prev / Next and Summary.
 3. **Confirm** adds the rows to the ledger (one transaction, idempotent) and turns the message into the result with an **Undo** button; **Undo** removes the whole batch again. The group gets a short announcement of a confirmation.
 4. **Open in app** opens the review page as a Mini App (`/signin?next=/imports/<id>`): the page signs the member in from Telegram's signed launch data and continues to the review screen.
 
@@ -207,7 +207,7 @@ Buttons carry only a short action code, the draft id and an HMAC nonce (under 64
 
 **Captions.** A caption such as `split between mei and dad`, `paid by mum` or `except dad` sets who paid and who shares. Plain code reads it (the text never reaches the model) against an alias table: each member's display name, first name and Telegram username, any extra names added with `/alias`, and `me`. Unknown names are reported in the draft, never guessed.
 
-**Commands.** `/rate EUR 1.51` sets today's default rate for the group (SGD per 1 EUR; audited); `/login` sends the member a one-time dashboard link privately (always to their own chat, also when asked for in the group); `/alias mum mom` gives a member another name for captions; `/help`.
+**Commands.** `/rate EUR 1.51` sets today's default rate for the group (SGD per 1 EUR; audited); `/login` sends the member a one-time dashboard link privately (always to their own chat, also when asked for in the group); `/alias mum mom` gives a member another name for captions (refused when the name is already someone's name, username or alias); `/help`.
 
 **Notifications (decision D6).** Confirming an import or adding an expense on the web posts a short summary to the group; editing or deleting an expense, or undoing an import, sends a private message to each member who was part of it. All best effort: a member who never pressed Start in the bot, or Telegram being down, never fails the change.
 
@@ -225,7 +225,7 @@ Each member presses Start in a private chat with the bot once, so it can message
 ## Layout
 
 ```
-src/app            Next.js routes: (app) pages that need a session, expenses, balances, settlements, dashboard, budget, rates, /imports, /signin, /api/auth, /api/imports, /api/cron, /api/health, server actions
+src/app            Next.js routes: (app) pages that need a session, expenses, balances, settlements, dashboard, budget, rates, /imports, /signin, /api/auth, /api/imports, /api/telegram, /api/cron, /api/health, server actions
 src/proxy.ts       First gate: no session cookie, no protected page
 src/components     UI building blocks (app shell, forms, rows, icons); import/ holds the upload and review screens
 src/db             Drizzle schema, client, migration runner and the dev seed

@@ -24,6 +24,9 @@ export default async function setup(): Promise<() => Promise<void>> {
   const url = new URL(adminUrl);
   url.pathname = `/${name}`;
   process.env.TEST_DATABASE_URL = url.toString();
+  // The bot's member lookup resolves the process wide session secret even when it only reads the
+  // allowlist, so the suite needs one (CI sets only DATABASE_URL). A made-up value, never a real secret.
+  process.env.SESSION_SECRET ??= "integration-session-secret-0123456789abcdef";
 
   const { db, pool } = createDatabase({ connectionString: url.toString(), max: 2 });
   try {
