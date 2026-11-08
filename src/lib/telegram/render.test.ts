@@ -290,6 +290,36 @@ describe("the 4096 character cap", () => {
   });
 });
 
+describe("a payment the bank billed in SGD", () => {
+  // Trenitalia: EUR 100.00 on the receipt, S$144.26 charged to the card.
+  const billed = row(1, {
+    merchant: "Trenitalia",
+    amountMinor: 10000,
+    billedAmountMinor: 14426,
+    billedCurrency: "SGD",
+  });
+
+  it("shows the SGD that counts, with the receipt amount beside it, on the summary", () => {
+    const message = renderSummary(input(view([billed])));
+    expect(message.text).toContain("1. Trenitalia, S$144.26 (€100.00), Food");
+    expect(message.text).toContain(
+      "<b>S$144.26</b> - shares: Mei S$48.09, Mum S$48.09, Dad S$48.08",
+    );
+    expect(message.text).not.toContain("<b>€100.00</b>");
+  });
+
+  it("shows it on the row editor too", () => {
+    const message = renderRowEditor(input(view([billed])), 0);
+    expect(message.text).toContain("Trenitalia, S$144.26 (€100.00), Food, 3 Nov 2026");
+  });
+
+  it("counts the receipt amount when nothing was billed", () => {
+    const message = renderSummary(input(view([row(1, { amountMinor: 10000 })])));
+    expect(message.text).toContain("1. Shop 1, €100.00, Food");
+    expect(message.text).toContain("<b>€100.00</b>");
+  });
+});
+
 describe("the row editor", () => {
   const v = view([
     row(1),
@@ -310,6 +340,7 @@ describe("the row editor", () => {
     expect(message.text).toContain("Shared equally between Mei, Mum, Dad.");
     expect(labels(message)).toEqual([
       "Included in import",
+      "Edit amount in app",
       "✗ Alex",
       "✓ Mei",
       "✓ Mum",
@@ -329,6 +360,16 @@ describe("the row editor", () => {
       "Summary",
       "Next ›",
     ]);
+  });
+
+  it("leads the amount edit to the same row in the app, signed in from Telegram", () => {
+    const message = renderRowEditor(input(v), 1);
+    const edit = buttons(message).find((b) => b.text === "Edit amount in app");
+    expect(edit?.callback_data).toBeUndefined();
+    expect(edit?.web_app?.url).toBe(
+      `https://app.test/signin?next=${encodeURIComponent(`/imports/${ID}?row=row-2`)}`,
+    );
+    expect(message.text).toContain("To change the amount or currency, tap Edit amount in app.");
   });
 
   it("has Prev and Next in the middle, and offers to include an unticked row", () => {
@@ -416,6 +457,16 @@ describe("closed drafts", () => {
     expect(
       renderConfirmed(input(view([], { status: "confirmed", expenses: [expense("1")] }))).text,
     ).toContain("Added 1 expense<");
+  });
+
+  it("shows the SGD an expense was recorded at when the bank billed it", () => {
+    const v = view([], {
+      status: "confirmed",
+      expenses: [
+        expense("1", { amountMinor: 10000, billedAmountMinor: 14426, billedCurrency: "SGD" }),
+      ],
+    });
+    expect(renderConfirmed(input(v)).text).toContain("Item 1, S$144.26 (€100.00)");
   });
 
   it("shows undone, discarded and expired drafts with no buttons", () => {

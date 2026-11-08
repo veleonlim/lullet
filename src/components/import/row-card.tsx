@@ -1,18 +1,14 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { CATEGORIES, categoryLabel, formatDate, type FieldErrors, type Member } from "@/lib/ledger";
 import {
-  CATEGORIES,
-  categoryLabel,
-  formatDate,
-  formatMoney,
-  type FieldErrors,
-  type Member,
-} from "@/lib/ledger";
-import {
+  chargedCurrency,
+  countedAmount,
   isBlocking,
   ISSUE_TEXT,
+  moneyText,
   rowState,
   type BatchSplit,
   type DraftRow,
@@ -68,6 +64,7 @@ export function RowCard({
   split,
   errors,
   readOnly,
+  focusRequest,
   onChange,
   onToggleMember,
   onMode,
@@ -80,23 +77,40 @@ export function RowCard({
   split: SplitResult;
   errors: FieldErrors | undefined;
   readOnly: boolean;
+  /** Bumped by the parent to open this row's edit panel and bring it into view. */
+  focusRequest: number;
   onChange: (patch: Partial<RowEdit>) => void;
   onToggleMember: (userId: string) => void;
   onMode: (mode: "equal" | "percent") => void;
   onPercent: (userId: string, basisPoints: number) => void;
 }) {
   const needsInput = isBlocking(row.fieldStates);
-  const [open, setOpen] = useState(needsInput);
+  const [open, setOpen] = useState(needsInput || focusRequest > 0);
+  const card = useRef<HTMLLIElement>(null);
   const name = row.merchant ?? "this row";
-  const amountShown =
-    row.amountMinor !== null && row.currency !== null
-      ? formatMoney(row.amountMinor, row.currency)
-      : null;
-  const billedShown =
-    row.billedAmountMinor !== null && row.billedCurrency !== null
-      ? formatMoney(row.billedAmountMinor, row.billedCurrency)
-      : null;
   const id = `row-${row.id}`;
+  const counted = countedAmount(row);
+  const amountShown = counted ? moneyText(counted) : null;
+  const receiptShown = counted?.receipt ? moneyText(counted.receipt) : null;
+
+  // The review screen asks for this row to be opened (from the confirm step, or a link from the chat).
+  const [seenRequest, setSeenRequest] = useState(focusRequest);
+  if (seenRequest !== focusRequest) {
+    setSeenRequest(focusRequest);
+    if (focusRequest > 0) setOpen(true);
+  }
+  useEffect(() => {
+    if (focusRequest === 0) return;
+    const frame = requestAnimationFrame(() => {
+      card.current?.scrollIntoView({ block: "start", behavior: "smooth" });
+      card.current?.querySelector<HTMLInputElement>(`#${CSS.escape(`${id}-amount`)}`)?.focus({
+        preventScroll: true,
+      });
+    });
+    return () => {
+      cancelAnimationFrame(frame);
+    };
+  }, [focusRequest, id]);
   const notes = row.issues.filter((issue) => issue.startsWith("note:")).map((i) => i.slice(5));
   const reasons = row.issues
     .filter((issue) => !issue.startsWith("note:") && issue !== "possible_duplicate")
@@ -107,6 +121,8 @@ export function RowCard({
 
   return (
     <li
+      ref={card}
+      id={id}
       data-testid="import-row"
       data-included={row.included}
       className={`rounded-2xl border bg-surface ${
@@ -141,8 +157,10 @@ export function RowCard({
               >
                 {amountShown ?? "Needs amount"}
               </span>
-              {billedShown ? (
-                <span className="num block text-xs text-muted">Billed {billedShown}</span>
+              {receiptShown ? (
+                <span className="num block text-xs text-muted" data-testid="row-receipt-amount">
+                  {receiptShown} on the receipt
+                </span>
               ) : null}
             </p>
           </div>
@@ -184,6 +202,19 @@ export function RowCard({
           {notes.length > 0 ? (
             <p className="mt-1 text-sm text-muted italic">{notes.join(" · ")}</p>
           ) : null}
+          {readOnly ? null : (
+            <button
+              type="button"
+              aria-expanded={open}
+              aria-controls={`${id}-edit`}
+              onClick={() => {
+                setOpen((value) => !value);
+              }}
+              className="mt-2 inline-flex min-h-10 items-center rounded-lg border border-border-strong bg-surface px-3 text-sm font-semibold text-accent hover:bg-surface-muted"
+            >
+              {open ? "Close details" : `Edit ${row.merchant ?? "row"}`}
+            </button>
+          )}
         </div>
       </div>
 
@@ -238,20 +269,6 @@ export function RowCard({
             ))}
           </ul>
         ) : null}
-
-        {readOnly ? null : (
-          <button
-            type="button"
-            aria-expanded={open}
-            aria-controls={`${id}-edit`}
-            onClick={() => {
-              setOpen((value) => !value);
-            }}
-            className="inline-flex min-h-9 items-center rounded-lg text-sm font-semibold text-accent hover:underline"
-          >
-            {open ? "Close details" : `Edit ${row.merchant ?? "row"}`}
-          </button>
-        )}
       </div>
 
       {open && !readOnly ? (
@@ -269,18 +286,27 @@ export function RowCard({
               )}
             />
           </Field>
+          <Field label="Date" htmlFor={`${id}-date`} error={errors?.date}>
+            <input
+              id={`${id}-date`}
+              type="date"
+              value={edit.date}
+              onChange={(event) => {
+                onChange({ date: event.target.value });
+              }}
+              className={fieldClass(Boolean(errors?.date) || row.fieldStates.date === "unreadable")}
+            />
+          </Field>
           <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)] gap-3">
-            <Field label="Date" htmlFor={`${id}-date`} error={errors?.date}>
-              <input
-                id={`${id}-date`}
-                type="date"
-                value={edit.date}
+            <Field label="Amount" htmlFor={`${id}-amount`} error={errors?.amount}>
+              <AmountInput
+                id={`${id}-amount`}
+                value={edit.amount}
+                invalid={Boolean(errors?.amount) || row.fieldStates.amount === "unreadable"}
+                placeholder="48.50"
                 onChange={(event) => {
-                  onChange({ date: event.target.value });
+                  onChange({ amount: event.target.value });
                 }}
-                className={fieldClass(
-                  Boolean(errors?.date) || row.fieldStates.date === "unreadable",
-                )}
               />
             </Field>
             <Field label="Currency" htmlFor={`${id}-currency`} error={errors?.currency}>
@@ -303,45 +329,40 @@ export function RowCard({
               </select>
             </Field>
           </div>
-          <Field label="Amount" htmlFor={`${id}-amount`} error={errors?.amount}>
-            <AmountInput
-              id={`${id}-amount`}
-              value={edit.amount}
-              invalid={Boolean(errors?.amount) || row.fieldStates.amount === "unreadable"}
-              placeholder="48.50"
-              onChange={(event) => {
-                onChange({ amount: event.target.value });
-              }}
-            />
-          </Field>
-          <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)] gap-3">
-            <Field label="Billed by the bank (optional)" htmlFor={`${id}-billed`}>
-              <AmountInput
-                id={`${id}-billed`}
-                value={edit.billedAmount}
-                placeholder="75.20"
-                onChange={(event) => {
-                  onChange({ billedAmount: event.target.value });
-                }}
-              />
-            </Field>
-            <Field label="Billed in" htmlFor={`${id}-billed-currency`}>
-              <select
-                id={`${id}-billed-currency`}
-                value={edit.billedCurrency}
-                onChange={(event) => {
-                  onChange({ billedCurrency: event.target.value });
-                }}
-                className={fieldClass(false)}
-              >
-                <option value="">None</option>
-                {orderedCurrencies().map((code) => (
-                  <option key={code} value={code}>
-                    {code}
-                  </option>
-                ))}
-              </select>
-            </Field>
+          <div className="space-y-1.5">
+            <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)] gap-3">
+              <Field label="Charged to your card (optional)" htmlFor={`${id}-billed`}>
+                <AmountInput
+                  id={`${id}-billed`}
+                  value={edit.billedAmount}
+                  placeholder="144.26"
+                  onChange={(event) => {
+                    onChange({ billedAmount: event.target.value });
+                  }}
+                />
+              </Field>
+              <Field label="Charged in" htmlFor={`${id}-billed-currency`}>
+                <select
+                  id={`${id}-billed-currency`}
+                  value={chargedCurrency(edit)}
+                  onChange={(event) => {
+                    onChange({ billedCurrency: event.target.value });
+                  }}
+                  className={fieldClass(false)}
+                >
+                  <option value="">None</option>
+                  {orderedCurrencies().map((code) => (
+                    <option key={code} value={code}>
+                      {code}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+            </div>
+            <p className="text-xs text-muted">
+              When your bank charged a different amount, for example S$144.26 for a €100.00 payment,
+              that is the amount that counts.
+            </p>
           </div>
           <ChipRadioGroup
             legend="Category"

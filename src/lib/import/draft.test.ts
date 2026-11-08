@@ -116,7 +116,7 @@ describe("applyEdit", () => {
     expect(applyEdit(row, { ...rowToEdit(row), amount: "0" }).amountMinor).toBeNull();
   });
 
-  it("keeps a billed amount only when both parts read", () => {
+  it("keeps a billed amount only when it reads, taking SGD when no currency is picked", () => {
     const row = draftRow();
     const withBilled = applyEdit(row, {
       ...rowToEdit(row),
@@ -129,7 +129,10 @@ describe("applyEdit", () => {
       billedAmountText: "75.20",
     });
     expect(
-      applyEdit(row, { ...rowToEdit(row), billedAmount: "75.20", billedCurrency: "" })
+      applyEdit(row, { ...rowToEdit(row), billedAmount: "75.20", billedCurrency: "" }),
+    ).toMatchObject({ billedAmountMinor: 7520, billedCurrency: "SGD", billedAmountText: "75.20" });
+    expect(
+      applyEdit(row, { ...rowToEdit(row), billedAmount: "", billedCurrency: "SGD" })
         .billedAmountMinor,
     ).toBeNull();
     expect(

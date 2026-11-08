@@ -268,6 +268,117 @@ test.describe("screenshot import", () => {
     await expect(page.getByText("Added 2 expenses")).toBeVisible();
   });
 
+  test("a payment the bank billed in SGD shows what counts and can be corrected before adding", async ({
+    page,
+  }) => {
+    // A card-app screenshot: EUR 100.00 with an unlabeled 144.26 that is the SGD actually charged.
+    const image = screenshot(21);
+    await stubRead(
+      image,
+      extraction([
+        transaction({
+          merchant: "Trenitalia",
+          amount_text: "EUR 100.00",
+          amount_value: "100.00",
+          billed_amount_text: "144.26",
+          billed_amount_value: "144.26",
+          billed_currency: "SGD",
+          category: "transport",
+        }),
+      ]),
+    );
+    const id = await uploadAndReview(page, image);
+
+    // The SGD that counts leads; the receipt amount is the smaller print.
+    const row = rowFor(page, "Trenitalia");
+    await expect(row.getByTestId("row-amount")).toHaveText("S$144.26");
+    await expect(row.getByTestId("row-receipt-amount")).toHaveText("€100.00 on the receipt");
+    await expect(page.getByTestId("summary")).toContainText("S$144.26");
+    await expect(personTotal(page, "Alex")).toContainText("Paid S$144.26");
+    await expect(personTotal(page, "Jamie")).toContainText("Owes S$48.09");
+    await expectNoSidewaysScroll(page);
+
+    // The amount, its currency and the charged amount can all be changed.
+    await row.getByRole("button", { name: "Edit Trenitalia" }).click();
+    await expect(row.getByLabel("Amount", { exact: true })).toHaveValue("100.00");
+    await expect(row.getByLabel("Currency")).toHaveValue("EUR");
+    await expect(row.getByLabel("Charged to your card (optional)")).toHaveValue("144.26");
+    await expect(row.getByLabel("Charged in")).toHaveValue("SGD");
+    await expectNoSidewaysScroll(page);
+    await row.getByLabel("Amount", { exact: true }).fill("120.00");
+    await row.getByLabel("Currency").selectOption("CHF");
+    await row.getByLabel("Charged in").selectOption("");
+    await row.getByLabel("Charged to your card (optional)").fill("172.50");
+    await expect(row.getByLabel("Charged in")).toHaveValue("SGD");
+    await expect(row.getByTestId("row-amount")).toHaveText("S$172.50");
+    await expect(row.getByTestId("row-receipt-amount")).toHaveText("CHF 120.00 on the receipt");
+    await expect(page.getByTestId("save-state")).toHaveText("Saved");
+
+    // The change is kept: a reload shows it.
+    await page.reload();
+    await expect(rowFor(page, "Trenitalia").getByTestId("row-amount")).toHaveText("S$172.50");
+    await expect(rowFor(page, "Trenitalia").getByTestId("row-receipt-amount")).toHaveText(
+      "CHF 120.00 on the receipt",
+    );
+
+    // The confirm step shows the counted SGD and leads back to the row's amount.
+    await page.getByRole("button", { name: "Review and add" }).click();
+    const dialog = page.getByRole("dialog", { name: "Confirm or make changes" });
+    await expect(dialog.getByTestId("confirm-amount")).toHaveText("S$172.50");
+    await expect(dialog).toContainText("CHF 120.00 on the receipt");
+    await expect(dialog).toContainText("Jamie owes");
+    await expect(dialog).toContainText("S$57.50");
+    await dialog.getByRole("button", { name: "Change the amount of Trenitalia" }).click();
+    await expect(dialog).toBeHidden();
+    const again = rowFor(page, "Trenitalia");
+    await expect(again.getByLabel("Amount", { exact: true })).toBeFocused();
+    await again.getByLabel("Charged to your card (optional)").fill("150.00");
+    await expect(page.getByTestId("save-state")).toHaveText("Saved");
+
+    await page.getByRole("button", { name: "Review and add" }).click();
+    await expect(dialog.getByTestId("confirm-amount")).toHaveText("S$150.00");
+    await dialog.getByRole("button", { name: "OK, add to ledger" }).click();
+    await expect(page.getByText("Added 1 expense from")).toBeVisible();
+
+    // The ledger records the SGD the card was charged.
+    await page.goto("/expenses");
+    await expect(page.getByText("Trenitalia")).toBeVisible();
+    await expect(page.getByText("S$150.00").first()).toBeVisible();
+    expect(id).toMatch(/^[0-9a-f-]{36}$/);
+  });
+
+  test("a link from the chat opens the row's amount for editing", async ({ page }) => {
+    const image = screenshot(22);
+    await stubRead(
+      image,
+      extraction([
+        transaction({ merchant: "Gelato", amount_text: "€4,50", amount_value: "4.50" }),
+        transaction({
+          merchant: "Trenitalia",
+          amount_text: "EUR 100.00",
+          amount_value: "100.00",
+          billed_amount_text: "144.26",
+          billed_amount_value: "144.26",
+          billed_currency: "SGD",
+        }),
+      ]),
+    );
+    const id = await uploadAndReview(page, image);
+    const rowId = (await rowFor(page, "Trenitalia").getAttribute("id"))?.replace(/^row-/, "");
+    expect(rowId).toBeTruthy();
+
+    await page.goto(`/imports/${id}?row=${rowId ?? ""}`);
+    const row = rowFor(page, "Trenitalia");
+    await expect(row.getByLabel("Amount", { exact: true })).toBeVisible();
+    await expect(row.getByLabel("Amount", { exact: true })).toBeFocused();
+    // Only that row is open.
+    await expect(rowFor(page, "Gelato").getByLabel("Amount", { exact: true })).toHaveCount(0);
+    await row.getByLabel("Amount", { exact: true }).fill("101.00");
+    await row.getByLabel("Currency").selectOption("USD");
+    await expect(row.getByTestId("row-receipt-amount")).toHaveText("US$101.00 on the receipt");
+    await expect(page.getByTestId("save-state")).toHaveText("Saved");
+  });
+
   test("a failed read leaves an empty draft to enter by hand", async ({ page }) => {
     const image = screenshot(7);
     await stubRead(image, { failure: "refused" });

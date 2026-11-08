@@ -7,6 +7,8 @@ import {
   applyEdit,
   cleanBatch,
   computeTotals,
+  countedAmount,
+  moneyText,
   FAILURE_TEXT,
   resolveSplit,
   rowToEdit,
@@ -66,10 +68,13 @@ export function ImportReview({
   view,
   members,
   currentUserId,
+  openRowId,
 }: {
   view: DraftView;
   members: readonly Member[];
   currentUserId: string;
+  /** A row to open for editing as soon as the page shows (from a link in the chat). */
+  openRowId?: string | undefined;
 }) {
   const router = useRouter();
   const order = useMemo(() => members.map((m) => m.userId), [members]);
@@ -88,6 +93,11 @@ export function ImportReview({
     text: string;
   } | null>(null);
   const [busy, setBusy] = useState<Busy>(null);
+  // Which row to open for editing: the row id and a counter, so asking twice opens it twice.
+  const [focus, setFocus] = useState<{ id: string; count: number }>({
+    id: view.rows.some((row) => row.id === openRowId) ? (openRowId ?? "") : "",
+    count: view.rows.some((row) => row.id === openRowId) ? 1 : 0,
+  });
   const [asking, setAsking] = useState<"cancel" | "reread" | null>(null);
   const dialog = useRef<HTMLDialogElement>(null);
 
@@ -111,19 +121,38 @@ export function ImportReview({
     [rows, cleaned, order],
   );
 
+  // What each payment counts for: the amount the bank charged when there is one, else the receipt.
   const going = rows.flatMap((row, index) => {
     const split = splits[index];
-    return row.included && row.amountMinor !== null && row.currency !== null && split?.ok
-      ? [{ row, amountMinor: row.amountMinor, currency: row.currency, split: split.split }]
+    const counted = countedAmount(row);
+    return row.included && counted && row.amountMinor !== null && row.currency !== null && split?.ok
+      ? [{ row, counted, split: split.split }]
       : [];
   });
   const totals = useMemo(
-    () => computeTotals(going, cleaned.payerIds, order),
+    () =>
+      computeTotals(
+        going.map(({ counted, split }) => ({
+          amountMinor: counted.amountMinor,
+          currency: counted.currency,
+          split,
+        })),
+        cleaned.payerIds,
+        order,
+      ),
     // `going` is derived from rows, splits and cleaned.
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [rows, splits, cleaned, order],
   );
-  const sums = sumByCurrency(going);
+  const countedSums = sumByCurrency(going.map(({ counted }) => counted));
+  // The screenshot's own total is on the receipt amounts, so that comparison uses those.
+  const sums = sumByCurrency(
+    going.flatMap(({ row }) =>
+      row.amountMinor !== null && row.currency !== null
+        ? [{ amountMinor: row.amountMinor, currency: row.currency }]
+        : [],
+    ),
+  );
   const screenTotal = view.screenTotal;
   const includedCount = rows.filter((row) => row.included).length;
 
@@ -438,6 +467,7 @@ export function ImportReview({
                   split={split}
                   errors={showErrors || rowErrors[row.id] ? rowErrors[row.id] : undefined}
                   readOnly={readOnly}
+                  focusRequest={focus.id === row.id ? focus.count : 0}
                   onChange={(patch) => {
                     patchRow(row.id, patch);
                   }}
@@ -607,7 +637,7 @@ export function ImportReview({
                   <span className="font-semibold">
                     {includedCount} {includedCount === 1 ? "payment" : "payments"}
                   </span>{" "}
-                  <span className="num text-muted">{moneyList(sums)}</span>
+                  <span className="num text-muted">{moneyList(countedSums)}</span>
                 </p>
                 <Button variant="primary" disabled={busy !== null} onClick={review}>
                   Review and add
@@ -634,15 +664,36 @@ export function ImportReview({
             </p>
           </div>
           <ul className="divide-y divide-border rounded-xl border border-border text-sm">
-            {going.map(({ row, amountMinor, currency, split }) => (
-              <li key={row.id} className="flex items-start justify-between gap-3 px-3 py-2.5">
-                <span className="min-w-0">
-                  <span className="block font-medium break-words">{row.merchant}</span>
-                  <span className="block text-muted">
-                    Shared by {split.members.map(nameOf).join(", ")}
+            {going.map(({ row, counted, split }) => (
+              <li key={row.id} className="space-y-1.5 px-3 py-2.5">
+                <div className="flex items-start justify-between gap-3">
+                  <span className="min-w-0">
+                    <span className="block font-medium break-words">{row.merchant}</span>
+                    <span className="block text-muted">
+                      Shared by {split.members.map(nameOf).join(", ")}
+                    </span>
                   </span>
-                </span>
-                <span className="num shrink-0 font-semibold">{money(amountMinor, currency)}</span>
+                  <span className="num shrink-0 text-right">
+                    <span className="block font-semibold" data-testid="confirm-amount">
+                      {moneyText(counted)}
+                    </span>
+                    {counted.receipt ? (
+                      <span className="block text-xs text-muted">
+                        {moneyText(counted.receipt)} on the receipt
+                      </span>
+                    ) : null}
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    dialog.current?.close();
+                    setFocus((current) => ({ id: row.id, count: current.count + 1 }));
+                  }}
+                  className="inline-flex min-h-9 items-center rounded-lg text-sm font-semibold text-accent hover:underline"
+                >
+                  Change the amount of {row.merchant}
+                </button>
               </li>
             ))}
           </ul>

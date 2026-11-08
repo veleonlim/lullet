@@ -1,6 +1,8 @@
 import type { InlineKeyboardButton } from "grammy/types";
 import {
   computeTotals,
+  countedAmount,
+  countedText,
   isBlocking,
   rowState,
   resolveSplit,
@@ -69,8 +71,12 @@ function button(input: RenderInput, text: string, action: CallbackAction): Inlin
   return { text, callback_data: encodeCallback(input.secret, input.view.id, action) };
 }
 
-function openInApp(input: RenderInput, path = `/imports/${input.view.id}`): InlineKeyboardButton {
-  return { text: "Open in app", web_app: { url: appLink(input, path) } };
+function openInApp(
+  input: RenderInput,
+  path = `/imports/${input.view.id}`,
+  text = "Open in app",
+): InlineKeyboardButton {
+  return { text, web_app: { url: appLink(input, path) } };
 }
 
 function hasUnreadable(row: DraftRow): boolean {
@@ -100,10 +106,9 @@ export function chatConfirmBlocker(view: DraftView, order: readonly string[]): s
   }
 }
 
+/** What the row counts for: "S$144.26 (€100.00)" when the bank billed a figure, else the amount. */
 function money(row: DraftRow): string {
-  return row.amountMinor !== null && row.currency !== null
-    ? formatMoney(row.amountMinor, row.currency)
-    : "amount?";
+  return countedText(row) ?? "amount?";
 }
 
 function flags(row: DraftRow): string {
@@ -146,6 +151,7 @@ function describePayers(input: RenderInput): string {
 function totalsLines(input: RenderInput): { count: number; lines: string[] } {
   const order = input.members.map((m) => m.userId);
   const going = input.view.rows.filter((row) => row.included);
+  // Each row counts for the amount the bank charged when there is one, else the receipt amount.
   const usable: {
     amountMinor: number;
     currency: string;
@@ -157,8 +163,9 @@ function totalsLines(input: RenderInput): { count: number; lines: string[] } {
   }
   for (const row of going) {
     const split = usableSplit(row);
-    if (row.amountMinor !== null && row.currency !== null && split) {
-      usable.push({ amountMinor: row.amountMinor, currency: row.currency, split });
+    const counted = countedAmount(row);
+    if (counted && split) {
+      usable.push({ amountMinor: counted.amountMinor, currency: counted.currency, split });
     }
   }
   // Totals need at least one payer who is really in the group; otherwise just count the rows.
@@ -288,6 +295,7 @@ export function renderRowEditor(input: RenderInput, index: number): RenderedMess
     split.ok && split.split.mode === "percent"
       ? "Tap the +5% and -5% buttons, or reply to this message with percentages like 60 40."
       : "",
+    "To change the amount or currency, tap Edit amount in app.",
   ]
     .filter((line) => line !== "")
     .join("\n");
@@ -303,6 +311,7 @@ export function renderRowEditor(input: RenderInput, index: number): RenderedMess
       row: at,
     }),
   ]);
+  keyboard.push([openInApp(input, `/imports/${view.id}?row=${row.id}`, "Edit amount in app")]);
   keyboard.push(
     input.members.map((m, i) =>
       button(
@@ -374,9 +383,7 @@ export function renderConfirmed(input: RenderInput): RenderedMessage {
   const { view } = input;
   const live = view.expenses.filter((e) => e.deletedAt === null);
   const lines = live.map((e) => {
-    const amount = isCurrencyCode(e.currency)
-      ? formatMoney(e.amountMinor, e.currency)
-      : `${String(e.amountMinor)} ${e.currency}`;
+    const amount = countedText(e) ?? `${String(e.amountMinor)} ${e.currency}`;
     return `${escapeHtml(clip(e.description, 40))}, ${amount}`;
   });
   const text = fit(
