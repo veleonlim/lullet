@@ -7,9 +7,16 @@ import { openImportStore } from "@/server/import/runtime";
 
 export const metadata: Metadata = { title: "Review import" };
 
-export default async function ImportPage({ params }: { params: Promise<{ id: string }> }) {
+export default async function ImportPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ id: string }>;
+  searchParams: Promise<{ row?: string | string[] }>;
+}) {
   const store = await openImportStore();
   const { id } = await params;
+  const { row } = await searchParams;
   const view = await store.getDraft(id);
   if (!view) notFound();
   const members = await store.members();
@@ -19,7 +26,12 @@ export default async function ImportPage({ params }: { params: Promise<{ id: str
     return (
       <>
         <PageHeader title="Review import" back={{ href: "/expenses", label: "Expenses" }} />
-        <ImportReview view={view} members={members} currentUserId={currentUserId} />
+        <ImportReview
+          view={view}
+          members={members}
+          currentUserId={currentUserId}
+          openRowId={typeof row === "string" ? row : undefined}
+        />
       </>
     );
   }

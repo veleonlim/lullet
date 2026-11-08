@@ -2,9 +2,8 @@ import Link from "next/link";
 import { LocalTime } from "../local-time";
 import { Card, Notice, SectionTitle } from "../ui";
 import { UndoImportButton } from "./undo-button";
-import { formatDate, formatMoney, type Member } from "@/lib/ledger";
-import type { DraftView } from "@/lib/import";
-import { isCurrencyCode } from "@/lib/money";
+import { formatDate, type Member } from "@/lib/ledger";
+import { countedText, type DraftView } from "@/lib/import";
 import { route } from "@/lib/routes";
 
 /** A finished import: what it added (or that it was undone), with Undo import for the uploader. */
@@ -67,9 +66,7 @@ export function ImportResult({
                 <span className="block text-sm text-muted">{formatDate(expense.spentOn)}</span>
               </span>
               <span className="num shrink-0 font-semibold">
-                {isCurrencyCode(expense.currency)
-                  ? formatMoney(expense.amountMinor, expense.currency)
-                  : String(expense.amountMinor)}
+                {countedText(expense) ?? String(expense.amountMinor)}
               </span>
             </Link>
           ))}

@@ -1,7 +1,8 @@
 import { type APIRequestContext, type Page } from "@playwright/test";
 import type { Update } from "grammy/types";
 import { SEED_MEMBERS } from "@/db/seed-ids";
-import { wireframeExtraction } from "@/test-support/extraction";
+import type { Extraction } from "@/lib/import/extraction";
+import { extraction, transaction, wireframeExtraction } from "@/test-support/extraction";
 import { FakeTelegram, type FakeMessage } from "@/test-support/fake-telegram";
 import {
   callbackUpdate,
@@ -82,9 +83,14 @@ async function tap(
   expect(response.status()).toBe(200);
 }
 
-async function sendPhoto(request: APIRequestContext, seed: number, caption?: string) {
+async function sendPhoto(
+  request: APIRequestContext,
+  seed: number,
+  caption?: string,
+  read: Extraction = wireframeExtraction(),
+) {
   const image = screenshot(seed);
-  await stubRead(image, wireframeExtraction());
+  await stubRead(image, read);
   fake.addFile(`file-${String(seed)}`, image.buffer);
   const response = await deliver(
     request,
@@ -287,6 +293,61 @@ test.describe("Telegram bot", () => {
     await expect(page.getByText("not on the list for this trip")).toBeVisible();
     await expect(page.getByRole("heading", { name: "Review import" })).toHaveCount(0);
     await stranger.close();
+  });
+
+  test("a payment billed in SGD shows what counts, and its amount is edited in the app", async ({
+    browser,
+    request,
+  }) => {
+    // A card-app screenshot: EUR 100.00 with an unlabeled 144.26 that is the SGD actually charged.
+    const draft = await sendPhoto(
+      request,
+      8,
+      undefined,
+      extraction([
+        transaction({
+          merchant: "Trenitalia",
+          amount_text: "EUR 100.00",
+          amount_value: "100.00",
+          billed_amount_text: "144.26",
+          billed_amount_value: "144.26",
+          billed_currency: "SGD",
+          category: "transport",
+        }),
+      ]),
+    );
+    expect(draft.text).toContain("1. Trenitalia, S$144.26 (€100.00), Transport");
+    expect(draft.text).toContain("<b>S$144.26</b>");
+
+    // The chat editor shows the same, and leads the amount edit to this row in the app.
+    await tap(request, dm(alex), draft, "Edit rows");
+    const editor = await settled(alex.telegramUserId, (m) => m.text.includes("Row 1 of 1"));
+    expect(editor.text).toContain("Trenitalia, S$144.26 (€100.00), Transport");
+    const url = editor.keyboard.flat().find((b) => b.text === "Edit amount in app")?.web_app?.url;
+    expect(url).toContain("/signin?next=%2Fimports%2F");
+    expect(decodeURIComponent(url ?? "")).toMatch(/\/imports\/[0-9a-f-]{36}\?row=[0-9a-f-]{36}/);
+
+    // The Mini App opens on that row with the amount ready to change.
+    const context = await browser.newContext();
+    const mini = await context.newPage();
+    await mini.goto(
+      `${url ?? ""}#tgWebAppData=${encodeURIComponent(signedInitData(alex.telegramUserId))}`,
+    );
+    const amount = mini.getByLabel("Amount", { exact: true });
+    await expect(amount).toHaveValue("100.00");
+    await expect(amount).toBeFocused();
+    await amount.fill("120.00");
+    await mini.getByLabel("Currency").selectOption("CHF");
+    await mini.getByLabel("Charged to your card (optional)").fill("172.50");
+    await expect(mini.getByTestId("save-state")).toHaveText("Saved");
+    await context.close();
+
+    // Back in the chat, the draft follows the correction.
+    await tap(request, dm(alex), editor, "Summary");
+    // (CHF amounts are written with a non-breaking space, so compare with plain spaces.)
+    await settled(alex.telegramUserId, (m) =>
+      m.text.replace(/\s/g, " ").includes("1. Trenitalia, S$172.50 (CHF 120.00)"),
+    );
   });
 
   test("manual expenses are announced to the group, and edits and deletes tell the members involved", async ({
