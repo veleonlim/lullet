@@ -4,6 +4,8 @@ import {
   expenseMarketRateNeeded,
   marketRateNeeded,
   priceExpenses,
+  priceSettlement,
+  retainedPricedRate,
   summariseLedger,
   toLedgerExpense,
 } from "./pricing";
@@ -22,6 +24,9 @@ function expense(overrides: Partial<StoredExpense> & { id: string }): StoredExpe
     billedCurrency: null,
     rate: null,
     rateCurrency: null,
+    pricedRate: null,
+    pricedRateCurrency: null,
+    pricedSource: null,
     splitMethod: "equal",
     payers: [{ userId: "a", amountMinor: 14849 }],
     shares: [
@@ -49,6 +54,9 @@ function settlement(overrides: Partial<StoredSettlement> & { id: string }): Stor
     billedCurrency: null,
     rate: null,
     rateCurrency: null,
+    pricedRate: null,
+    pricedRateCurrency: null,
+    pricedSource: null,
     settledOn: "2026-11-05",
     note: null,
     createdBy: "b",
@@ -105,6 +113,122 @@ describe("marketRateNeeded", () => {
         none,
       ),
     ).toBeNull();
+  });
+});
+
+describe("stored pricing rates", () => {
+  const snapshot = {
+    pricedRate: "1.4",
+    pricedRateCurrency: "EUR",
+    pricedSource: "market",
+  } as const;
+
+  it("toLedgerExpense hands the stored rate to the money library", () => {
+    expect(toLedgerExpense(expense({ id: "e", ...snapshot })).priced).toEqual({
+      currency: "EUR",
+      rate: parseRate("1.4"),
+      source: "market",
+    });
+    expect(toLedgerExpense(expense({ id: "e" })).priced).toBeUndefined();
+  });
+
+  it("an expense with a stored rate needs no market rate", () => {
+    expect(expenseMarketRateNeeded(expense({ id: "e", ...snapshot }), none)).toBeNull();
+    expect(
+      marketRateNeeded(
+        {
+          date: "2026-11-02",
+          amountMinor: 1000,
+          currency: "EUR",
+          priced: { currency: "EUR", rate: parseRate("1.4"), source: "market" },
+        },
+        none,
+      ),
+    ).toBeNull();
+  });
+
+  it("prices an expense and a settlement from their stored rate, whatever the book says", () => {
+    const moved = createRateBook({
+      overrides: [{ date: "2026-11-02", currency: "EUR", rate: "9" }],
+      market: [{ date: "2026-11-02", currency: "EUR", rate: "9" }],
+    });
+    const [priced] = priceExpenses([expense({ id: "e", ...snapshot })], moved, order);
+    expect(priced?.sgd?.totalMinor).toBe(20789); // 148.49 x 1.4
+    expect(priced?.sgd?.source).toBe("market");
+    const eur = settlement({
+      id: "s",
+      currency: "EUR",
+      amountMinor: 1000,
+      settledOn: "2026-11-02",
+      ...snapshot,
+    });
+    expect(priceSettlement(eur, moved)?.sgdMinor).toBe(1400);
+  });
+});
+
+describe("retainedPricedRate", () => {
+  const priced = expense({
+    id: "e",
+    pricedRate: "1.4",
+    pricedRateCurrency: "EUR",
+    pricedSource: "market",
+  });
+  const same = { date: "2026-11-02", amountMinor: 1000, currency: "EUR" as const };
+
+  it("keeps the stored rate when the day and the converted currency are unchanged", () => {
+    expect(retainedPricedRate(priced, same)).toEqual({
+      currency: "EUR",
+      rate: parseRate("1.4"),
+      source: "market",
+    });
+    // The amount, and so the figure, may change; the rate it is priced at does not.
+    expect(retainedPricedRate(priced, { ...same, amountMinor: 5000 })).not.toBeNull();
+  });
+
+  it("takes a fresh rate when the day or the converted currency changes", () => {
+    expect(retainedPricedRate(priced, { ...same, date: "2026-11-03" })).toBeNull();
+    expect(retainedPricedRate(priced, { ...same, currency: "CHF" })).toBeNull();
+    expect(
+      retainedPricedRate(priced, { ...same, billed: { amountMinor: 900, currency: "CHF" } }),
+    ).toBeNull();
+    expect(
+      retainedPricedRate(priced, { ...same, billed: { amountMinor: 900, currency: "EUR" } }),
+    ).not.toBeNull();
+  });
+
+  it("takes nothing when no rate prices the edited expense, or none was stored before", () => {
+    expect(retainedPricedRate(priced, { ...same, currency: "SGD" })).toBeNull();
+    expect(
+      retainedPricedRate(priced, { ...same, billed: { amountMinor: 900, currency: "SGD" } }),
+    ).toBeNull();
+    expect(
+      retainedPricedRate(priced, { ...same, rate: { currency: "EUR", rate: parseRate("1.7") } }),
+    ).toBeNull();
+    expect(retainedPricedRate(expense({ id: "e" }), same)).toBeNull();
+  });
+});
+
+describe("summariseLedger with stored pricing rates", () => {
+  const snapshot = {
+    pricedRate: "1.4",
+    pricedRateCurrency: "EUR",
+    pricedSource: "market",
+  } as const;
+
+  it("keeps balances, settle-up and totals where they were when the day's rates change", () => {
+    const input = {
+      memberOrder: order,
+      expenses: [expense({ id: "e", ...snapshot })],
+      settlements: [],
+    };
+    const before = summariseLedger({ ...input, book: market });
+    const moved = createRateBook({
+      overrides: [{ date: "2026-11-02", currency: "EUR", rate: "9" }],
+      market: [{ date: "2026-11-02", currency: "EUR", rate: "9" }],
+    });
+    const after = summariseLedger({ ...input, book: moved });
+    expect(after).toEqual(before);
+    expect(after.totalSpendMinor).toBe(20789);
   });
 });
 
@@ -177,6 +301,9 @@ describe("summariseLedger", () => {
         billedCurrency: "SGD",
         rate: "1.5",
         rateCurrency: "EUR",
+        pricedRate: null,
+        pricedRateCurrency: null,
+        pricedSource: null,
       }),
     );
     expect(ledger.billed).toEqual({ amountMinor: 25000, currency: "SGD" });

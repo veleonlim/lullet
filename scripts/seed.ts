@@ -100,6 +100,15 @@ async function addDemoData(): Promise<void> {
     currency: "EUR",
   });
 
+  // A budget the demo spending runs against: day 3 is over, day 2 under, day 4 near.
+  await as(alex).setBudget({ day: null, amountMinor: 30_000 });
+  await as(alex).setBudget({ day: "2026-11-04", amountMinor: 20_000 });
+  await as(alex).updateTrip({
+    tripStart: "2026-11-02",
+    tripEnd: "2026-11-09",
+    timeZone: "Europe/Zurich",
+  });
+
   const settlement = validateSettlementForm(
     blankSettlementForm({ fromUserId: dad, toUserId: alex, amount: "30.00", today: "2026-11-05" }),
     order,

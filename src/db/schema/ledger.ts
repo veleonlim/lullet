@@ -48,6 +48,10 @@ export const expenses = pgTable(
     /** SGD per 1 unit of `rateCurrency`; set on this single expense. Used only for an amount in that currency. */
     rate: numeric({ precision: 20, scale: 10 }),
     rateCurrency: currencyCode("rate_currency"),
+    /** The rate this amount was priced with when saved or last re-priced, so a day's rate changing later does not move the figure. Distinct from the rate typed on the record. */
+    pricedRate: numeric("priced_rate", { precision: 20, scale: 10 }),
+    pricedRateCurrency: currencyCode("priced_rate_currency"),
+    pricedSource: text("priced_source"),
     splitMethod: splitMethod("split_method").notNull().default("equal"),
     createdBy: uuid("created_by")
       .notNull()
@@ -73,6 +77,11 @@ export const expenses = pgTable(
       "expenses_rate_check",
       sql`(${t.rate} IS NULL AND ${t.rateCurrency} IS NULL)
         OR (${t.rate} IS NOT NULL AND ${t.rate} > 0 AND ${t.rateCurrency} IS NOT NULL AND ${t.rateCurrency} ~ '^[A-Z]{3}$')`,
+    ),
+    check(
+      "expenses_priced_rate_check",
+      sql`(${t.pricedRate} IS NULL AND ${t.pricedRateCurrency} IS NULL AND ${t.pricedSource} IS NULL)
+        OR (${t.pricedRate} IS NOT NULL AND ${t.pricedRate} > 0 AND ${t.pricedRateCurrency} IS NOT NULL AND ${t.pricedRateCurrency} ~ '^[A-Z]{3}$' AND ${t.pricedSource} IN ('day_override', 'market'))`,
     ),
     check("expenses_soft_delete_check", sql`(${t.deletedAt} IS NULL) = (${t.deletedBy} IS NULL)`),
   ],
@@ -148,6 +157,10 @@ export const settlements = pgTable(
     /** SGD per 1 unit of `rateCurrency`; set on this single settlement. Used only for an amount in that currency. */
     rate: numeric({ precision: 20, scale: 10 }),
     rateCurrency: currencyCode("rate_currency"),
+    /** The rate this amount was priced with when saved or last re-priced, so a day's rate changing later does not move the figure. Distinct from the rate typed on the record. */
+    pricedRate: numeric("priced_rate", { precision: 20, scale: 10 }),
+    pricedRateCurrency: currencyCode("priced_rate_currency"),
+    pricedSource: text("priced_source"),
     settledOn: date("settled_on", { mode: "string" }).notNull(),
     note: text(),
     createdBy: uuid("created_by")
@@ -183,6 +196,11 @@ export const settlements = pgTable(
       "settlements_rate_check",
       sql`(${t.rate} IS NULL AND ${t.rateCurrency} IS NULL)
         OR (${t.rate} IS NOT NULL AND ${t.rate} > 0 AND ${t.rateCurrency} IS NOT NULL AND ${t.rateCurrency} ~ '^[A-Z]{3}$')`,
+    ),
+    check(
+      "settlements_priced_rate_check",
+      sql`(${t.pricedRate} IS NULL AND ${t.pricedRateCurrency} IS NULL AND ${t.pricedSource} IS NULL)
+        OR (${t.pricedRate} IS NOT NULL AND ${t.pricedRate} > 0 AND ${t.pricedRateCurrency} IS NOT NULL AND ${t.pricedRateCurrency} ~ '^[A-Z]{3}$' AND ${t.pricedSource} IN ('day_override', 'market'))`,
     ),
     check(
       "settlements_soft_delete_check",

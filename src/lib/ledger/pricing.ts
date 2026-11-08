@@ -4,6 +4,7 @@ import {
   expenseInReportingCurrency,
   MoneyError,
   parseRate,
+  ratePricedCurrency,
   suggestTransfers,
   toReportingCurrency,
   type Balances,
@@ -13,12 +14,13 @@ import {
   type ExpenseInReportingCurrency,
   type LedgerExpense,
   type LedgerSettlement,
+  type PricedRate,
   type RateBook,
   type Transfer,
 } from "@/lib/money";
-import type { StoredExpense, StoredSettlement } from "./types";
+import type { PricedSource, StoredExpense, StoredSettlement } from "./types";
 
-/** Turns the stored billed amount and rate columns into the money library's shapes. */
+/** Turns the stored billed amount, rate and priced rate columns into the money library's shapes. */
 function convertible(row: {
   spentOn?: string;
   settledOn?: string;
@@ -28,6 +30,9 @@ function convertible(row: {
   billedCurrency: string | null;
   rate: string | null;
   rateCurrency: string | null;
+  pricedRate: string | null;
+  pricedRateCurrency: string | null;
+  pricedSource: PricedSource | null;
 }): ConvertibleAmount {
   return {
     date: row.spentOn ?? row.settledOn ?? "",
@@ -40,6 +45,14 @@ function convertible(row: {
     rate:
       row.rate !== null && row.rateCurrency !== null
         ? { currency: assertCurrencyCode(row.rateCurrency), rate: parseRate(row.rate) }
+        : undefined,
+    priced:
+      row.pricedRate !== null && row.pricedRateCurrency !== null && row.pricedSource !== null
+        ? {
+            currency: assertCurrencyCode(row.pricedRateCurrency),
+            rate: parseRate(row.pricedRate),
+            source: row.pricedSource,
+          }
         : undefined,
   };
 }
@@ -60,6 +73,21 @@ export function toLedgerSettlement(settlement: StoredSettlement): LedgerSettleme
     fromMemberId: settlement.fromUserId,
     toMemberId: settlement.toUserId,
   };
+}
+
+/**
+ * The stored rate an edited expense keeps. Only a change to what the price depends on (the day, the
+ * currency being converted, or whether a rate prices it at all) takes a fresh rate; any other edit
+ * leaves the figure where it was until the day is re-priced. Null means: take a fresh rate.
+ */
+export function retainedPricedRate(
+  before: StoredExpense,
+  next: ConvertibleAmount,
+): PricedRate | null {
+  const currency = ratePricedCurrency(next);
+  const priced = convertible(before).priced;
+  if (currency === null || priced === undefined) return null;
+  return before.spentOn === next.date && priced.currency === currency ? priced : null;
 }
 
 /**
@@ -93,6 +121,9 @@ export function expenseMarketRateNeeded(
     | "billedCurrency"
     | "rate"
     | "rateCurrency"
+    | "pricedRate"
+    | "pricedRateCurrency"
+    | "pricedSource"
   >,
   dayOverrides: Pick<RateBook, "dayOverride">,
 ): CurrencyCode | null {

@@ -131,3 +131,19 @@ const CATEGORY_PATHS: Record<CategoryId, ReactNode> = {
 export function CategoryIcon({ category, ...props }: IconProps & { category: CategoryId }) {
   return <Icon {...props}>{CATEGORY_PATHS[category]}</Icon>;
 }
+
+export function ChartIcon(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <path d="M4 20V10M10 20V4M16 20v-7M22 20H2" />
+    </Icon>
+  );
+}
+
+export function RatesIcon(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <path d="M4 8h14l-3-3M20 16H6l3 3" />
+    </Icon>
+  );
+}

@@ -18,6 +18,14 @@
   --negative-soft: oklch(0.96 0.025 27);
   --warning: oklch(0.5 0.1 70);
   --warning-soft: oklch(0.96 0.045 85);
+  /* Chart series, one per expense category in a fixed order (the validated data-viz palette:
+     adjacent colours stay apart for colour blind readers in light and dark). Never repainted by rank. */
+  --series-1: #2a78d6;
+  --series-2: #eb6834;
+  --series-3: #1baf7a;
+  --series-4: #eda100;
+  --series-5: #e87ba4;
+  --series-6: #008300;
   color-scheme: light dark;
 }
 
@@ -39,6 +47,12 @@
     --negative-soft: oklch(0.31 0.045 27);
     --warning: oklch(0.82 0.1 85);
     --warning-soft: oklch(0.32 0.05 85);
+    --series-1: #3987e5;
+    --series-2: #d95926;
+    --series-3: #199e70;
+    --series-4: #c98500;
+    --series-5: #d55181;
+    --series-6: #008300;
   }
 }
 
@@ -59,6 +73,12 @@
   --color-negative-soft: var(--negative-soft);
   --color-warning: var(--warning);
   --color-warning-soft: var(--warning-soft);
+  --color-series-1: var(--series-1);
+  --color-series-2: var(--series-2);
+  --color-series-3: var(--series-3);
+  --color-series-4: var(--series-4);
+  --color-series-5: var(--series-5);
+  --color-series-6: var(--series-6);
   --font-sans:
     ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
 }

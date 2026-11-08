@@ -2,6 +2,7 @@ import { eq } from "drizzle-orm";
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
 import * as s from "@/db/schema";
 import type { StoredExpense, StoredSettlement } from "@/lib/ledger";
+import { parseRate } from "@/lib/money";
 import { InvalidReferenceError, NotFoundError, type LedgerStore } from "@/server/ledger";
 import { closeTestDb, resetDatabase, testDb, type Seed } from "./helpers";
 import { expenseInput, seedTwoGroups, settlementInput, storeFor } from "./ledger-support";
@@ -76,6 +77,15 @@ async function buildWorld(): Promise<World> {
   const bDeletedSettlement = await storeB.deleteSettlement(
     (await storeB.createSettlement(settlementInput(b, { amount: "7.00" }))).id,
   );
+  // Group B also has a budget, a day budget, a day rate and trip dates of its own.
+  await storeB.setBudget({ day: null, amountMinor: 10_000 });
+  await storeB.setBudget({ day: "2026-11-02", amountMinor: 5_000 });
+  await storeB.updateTrip({
+    tripStart: "2026-11-01",
+    tripEnd: "2026-11-09",
+    timeZone: "Asia/Tokyo",
+  });
+  await storeB.setDailyRate({ day: "2026-11-02", currency: "EUR", rate: parseRate("9.9") });
 
   return {
     store: storeA,
@@ -101,14 +111,18 @@ async function buildWorld(): Promise<World> {
 
 /** Everything stored for group B, to prove a probe changed none of it. */
 async function snapshotOfB(groupId: string) {
-  const [expenses, payers, shares, settlements, audit] = await Promise.all([
-    db.select().from(s.expenses).where(eq(s.expenses.groupId, groupId)),
-    db.select().from(s.expensePayers).where(eq(s.expensePayers.groupId, groupId)),
-    db.select().from(s.expenseShares).where(eq(s.expenseShares.groupId, groupId)),
-    db.select().from(s.settlements).where(eq(s.settlements.groupId, groupId)),
-    db.select().from(s.auditLog).where(eq(s.auditLog.groupId, groupId)),
-  ]);
-  return { expenses, payers, shares, settlements, audit };
+  const [expenses, payers, shares, settlements, audit, budgets, dayRates, groups] =
+    await Promise.all([
+      db.select().from(s.expenses).where(eq(s.expenses.groupId, groupId)),
+      db.select().from(s.expensePayers).where(eq(s.expensePayers.groupId, groupId)),
+      db.select().from(s.expenseShares).where(eq(s.expenseShares.groupId, groupId)),
+      db.select().from(s.settlements).where(eq(s.settlements.groupId, groupId)),
+      db.select().from(s.auditLog).where(eq(s.auditLog.groupId, groupId)),
+      db.select().from(s.budgets).where(eq(s.budgets.groupId, groupId)),
+      db.select().from(s.dailyRates).where(eq(s.dailyRates.groupId, groupId)),
+      db.select().from(s.groups).where(eq(s.groups.id, groupId)),
+    ]);
+  return { expenses, payers, shares, settlements, audit, budgets, dayRates, groups };
 }
 
 const probes: Record<ScopedMethod, (world: World) => Promise<void>> = {
@@ -126,15 +140,8 @@ const probes: Record<ScopedMethod, (world: World) => Promise<void>> = {
     for (const id of b.userIds) expect(everything).not.toContain(id);
   },
 
-  rateBookFor: async ({ store, b }) => {
-    // Group B has its own day rate; group A must not see it, only the shared market rate.
-    await db.insert(s.dailyRates).values({
-      groupId: b.groupId,
-      rateDate: "2026-11-02",
-      base: "EUR",
-      rate: "9.9",
-      setBy: b.userIds[0] ?? "",
-    });
+  rateBookFor: async ({ store }) => {
+    // Group B has its own day rate (see buildWorld); group A must not see it, only the shared market rate.
     await db
       .insert(s.fxRates)
       .values({
@@ -258,6 +265,89 @@ const probes: Record<ScopedMethod, (world: World) => Promise<void>> = {
     await expect(store.restoreSettlement(b.deletedSettlement.id)).rejects.toBeInstanceOf(
       NotFoundError,
     );
+  },
+
+  loadDashboard: async ({ store, a, b }) => {
+    const data = await store.loadDashboard();
+    expect(data.expenses.map((e) => e.id)).toEqual([a.expense.id]);
+    expect(data.members.map((m) => m.userId)).toEqual([...a.userIds]);
+    // B's budgets, trip dates and day rate are invisible to A.
+    expect(data.budgets.defaultMinor).toBeNull();
+    expect(data.budgets.overrides.size).toBe(0);
+    expect(data.tripStart).toBeNull();
+    expect(data.timeZone).toBe("Europe/Zurich");
+    expect(data.book.dayOverride("2026-11-02", "EUR")).toBeUndefined();
+    expect(JSON.stringify(data.expenses)).not.toContain(b.userIds[0] ?? "-");
+  },
+
+  updateTrip: async ({ store }) => {
+    const updated = await store.updateTrip({
+      tripStart: "2026-11-03",
+      tripEnd: "2026-11-12",
+      timeZone: "Europe/Rome",
+    });
+    expect(updated).toEqual({
+      tripStart: "2026-11-03",
+      tripEnd: "2026-11-12",
+      timeZone: "Europe/Rome",
+    });
+    expect((await store.loadDashboard()).tripEnd).toBe("2026-11-12");
+  },
+
+  setBudget: async ({ store }) => {
+    await store.setBudget({ day: null, amountMinor: 20_000 });
+    await store.setBudget({ day: "2026-11-02", amountMinor: 3_000 });
+    const { budgets } = await store.loadDashboard();
+    expect(budgets.defaultMinor).toBe(20_000);
+    expect([...budgets.overrides]).toEqual([["2026-11-02", 3_000]]);
+  },
+
+  clearBudget: async ({ store }) => {
+    // A has no budget of its own: clearing B's default and B's day budget finds nothing to remove.
+    await store.clearBudget(null);
+    await store.clearBudget("2026-11-02");
+    const { budgets } = await store.loadDashboard();
+    expect(budgets.defaultMinor).toBeNull();
+  },
+
+  listDayRates: async ({ store }) => {
+    expect(await store.listDayRates("EUR")).toEqual([]);
+  },
+
+  listMarketRates: async ({ store }) => {
+    // Market rates are shared and hold no group data; B's day rate must not leak into them.
+    const rows = await store.listMarketRates("EUR", "2026-11-01", "2026-11-30");
+    expect(rows.length).toBeGreaterThan(0);
+    expect(rows.map((row) => row.rate)).not.toContain("9.9");
+  },
+
+  setDailyRate: async ({ store, a }) => {
+    // Only A's one expense on the day is on offer; B's expense on the same day is not counted or moved.
+    const offer = await store.setDailyRate({
+      day: "2026-11-02",
+      currency: "EUR",
+      rate: parseRate("1.6"),
+    });
+    expect(offer).toEqual({ expenses: 1, settlements: 0, wouldChange: 1 });
+    expect((await store.listDayRates("EUR")).map((row) => row.rate)).toEqual(["1.6"]);
+    const history = await store.expenseHistory(a.expense.id);
+    expect(history.map((entry) => entry.action)).not.toContain("expense.reprice");
+  },
+
+  clearDailyRate: async ({ store }) => {
+    // Only B has a day rate on that day; A clearing "its" rate removes nothing of B's.
+    const offer = await store.clearDailyRate({ day: "2026-11-02", currency: "EUR" });
+    expect(offer).toEqual({ expenses: 1, settlements: 0, wouldChange: 0 });
+  },
+
+  repriceDay: async ({ store, a, b }) => {
+    // B's day rate of 9.9 must not reach A's expense, and A's re-price must not reach B's.
+    const result = await store.repriceDay({ day: "2026-11-02", currency: "EUR" });
+    expect([result.expenses, result.settlements]).toEqual([1, 0]);
+    expect(result.changes).toEqual([]);
+    expect(result.changes.map((c) => c.id)).not.toContain(b.expense.id);
+    const history = await store.expenseHistory(a.expense.id);
+    expect(history.length).toBeGreaterThan(0);
   },
 };
 

@@ -19,6 +19,14 @@ export const AUDIT_ACTIONS = [
   "import.undo",
   "import.cancel",
   "import.image_deleted",
+  "expense.reprice",
+  "settlement.reprice",
+  "daily_rate.set",
+  "daily_rate.clear",
+  "daily_rate.reprice",
+  "budget.set",
+  "budget.clear",
+  "trip.update",
 ] as const;
 export type AuditAction = (typeof AUDIT_ACTIONS)[number];
 
@@ -39,6 +47,9 @@ export const expenseSnapshotSchema = z.object({
   billedCurrency: z.string().nullable(),
   rate: z.string().nullable(),
   rateCurrency: z.string().nullable(),
+  pricedRate: z.string().nullable().optional(),
+  pricedRateCurrency: z.string().nullable().optional(),
+  pricedSource: z.enum(["day_override", "market"]).nullable().optional(),
   splitMethod: z.enum(SPLIT_MODES),
   payers: z.array(personAmount),
   shares: z.array(personAmount),
@@ -59,6 +70,39 @@ export const settlementSnapshotSchema = z.object({
 });
 export type SettlementSnapshot = z.infer<typeof settlementSnapshotSchema>;
 
+/** How an expense's SGD figure was worked out at one moment; stored in the audit log when it is re-priced. */
+export const pricingSnapshotSchema = z.object({
+  sgdMinor: z.number().int(),
+  source: z.enum(["native", "billed", "expense_rate", "day_override", "market"]),
+  /** SGD per 1 unit of the converted currency; null when no rate was involved. */
+  rate: z.string().nullable(),
+});
+export type PricingSnapshot = z.infer<typeof pricingSnapshotSchema>;
+
+/** The JSON in `audit_log.before` and `.after` for an `expense.reprice` entry. */
+export const repriceSnapshotSchema = z.object({
+  description: z.string().optional(),
+  spentOn: z.string().optional(),
+  settledOn: z.string().optional(),
+  pricing: pricingSnapshotSchema.nullable(),
+});
+
+const PRICING_SOURCE_LABELS: Record<PricingSnapshot["source"], string> = {
+  native: "Already in SGD",
+  billed: "Exact figure billed in SGD",
+  expense_rate: "Your rate on the expense",
+  day_override: "Day rate",
+  market: "Market rate",
+};
+
+/** "S$222.74 (Day rate S$1.55)" or "No exchange rate". */
+export function describePricing(pricing: PricingSnapshot | null): string {
+  if (pricing === null) return "No exchange rate";
+  const label = PRICING_SOURCE_LABELS[pricing.source];
+  const rate = pricing.rate === null ? "" : ` S$${pricing.rate}`;
+  return `${formatMoney(pricing.sgdMinor, "SGD")} (${label}${rate})`;
+}
+
 export function snapshotExpense(expense: StoredExpense): ExpenseSnapshot {
   return {
     description: expense.description,
@@ -70,6 +114,9 @@ export function snapshotExpense(expense: StoredExpense): ExpenseSnapshot {
     billedCurrency: expense.billedCurrency,
     rate: expense.rate === null ? null : formatRate(parseRate(expense.rate)),
     rateCurrency: expense.rateCurrency,
+    pricedRate: expense.pricedRate === null ? null : formatRate(parseRate(expense.pricedRate)),
+    pricedRateCurrency: expense.pricedRateCurrency,
+    pricedSource: expense.pricedSource,
     splitMethod: expense.splitMethod,
     payers: expense.payers.map((p) => ({ userId: p.userId, amountMinor: p.amountMinor })),
     shares: expense.shares.map((s) => ({
@@ -147,6 +194,12 @@ function expenseFacts(
         ? `S$${snapshot.rate} per ${snapshot.rateCurrency}`
         : null,
     ],
+    [
+      "Priced at",
+      snapshot.pricedRate != null && snapshot.pricedRateCurrency != null && snapshot.pricedSource
+        ? `S$${snapshot.pricedRate} per ${snapshot.pricedRateCurrency} (${PRICING_SOURCE_LABELS[snapshot.pricedSource]})`
+        : null,
+    ],
     ["Paid by", people(byUserId(snapshot.payers), snapshot.currency, nameOf)],
     ["Split", SPLIT_LABELS[snapshot.splitMethod]],
     ["Shared between", people(byUserId(snapshot.shares), snapshot.currency, nameOf)],
@@ -196,6 +249,22 @@ export function auditActionLabel(action: string): string {
       return "Discarded a screenshot import";
     case "import.image_deleted":
       return "Deleted the original screenshot";
+    case "expense.reprice":
+      return "Re-priced";
+    case "settlement.reprice":
+      return "Re-priced a settlement";
+    case "daily_rate.set":
+      return "Set a day rate";
+    case "daily_rate.clear":
+      return "Cleared a day rate";
+    case "daily_rate.reprice":
+      return "Re-priced a day";
+    case "budget.set":
+      return "Set a budget";
+    case "budget.clear":
+      return "Cleared a budget";
+    case "trip.update":
+      return "Changed the trip";
     default:
       return action;
   }

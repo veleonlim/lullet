@@ -93,7 +93,7 @@ export async function seedDevelopmentData(db: Database, connectionString: string
 }
 
 /**
- * Removes every expense, settlement, audit entry and day rate (keeps people and market
+ * Removes every expense, settlement, audit entry, day rate and budget, and resets the trip dates (keeps people and market
  * rates) so a test or a demo starts from an empty ledger. TRUNCATE skips the row triggers
  * that make these tables append only, which is what makes a reset possible at all.
  * It refuses any database whose host is not local, so it can never wipe a shared ledger.
@@ -101,6 +101,9 @@ export async function seedDevelopmentData(db: Database, connectionString: string
 export async function resetLedger(db: Database, connectionString: string): Promise<void> {
   assertLocalDatabase(connectionString, "reset the ledger");
   await db.execute(
-    sql`TRUNCATE TABLE expense_payers, expense_shares, expenses, settlements, import_rows, imports, audit_log, daily_rates RESTART IDENTITY CASCADE`,
+    sql`TRUNCATE TABLE expense_payers, expense_shares, expenses, settlements, import_rows, imports, audit_log, daily_rates, budgets RESTART IDENTITY CASCADE`,
+  );
+  await db.execute(
+    sql`UPDATE groups SET trip_start = NULL, trip_end = NULL, time_zone = 'Europe/Zurich'`,
   );
 }

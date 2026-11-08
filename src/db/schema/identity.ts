@@ -3,6 +3,7 @@ import {
   bigint,
   boolean,
   check,
+  date,
   pgTable,
   smallint,
   text,
@@ -19,12 +20,26 @@ export const users = pgTable("users", {
   updatedAt: timestamptz("updated_at").notNull().defaultNow(),
 });
 
-export const groups = pgTable("groups", {
-  id: uuid().primaryKey().defaultRandom(),
-  name: text().notNull(),
-  createdAt: timestamptz("created_at").notNull().defaultNow(),
-  updatedAt: timestamptz("updated_at").notNull().defaultNow(),
-});
+export const groups = pgTable(
+  "groups",
+  {
+    id: uuid().primaryKey().defaultRandom(),
+    name: text().notNull(),
+    /** First and last calendar day of the trip. Both are optional: the dashboard falls back to the days that have expenses. */
+    tripStart: date("trip_start", { mode: "string" }),
+    tripEnd: date("trip_end", { mode: "string" }),
+    /** IANA time zone the trip runs in; decides which calendar day "today" is for budgets. */
+    timeZone: text("time_zone").notNull().default("Europe/Zurich"),
+    createdAt: timestamptz("created_at").notNull().defaultNow(),
+    updatedAt: timestamptz("updated_at").notNull().defaultNow(),
+  },
+  (t) => [
+    check(
+      "groups_trip_range_check",
+      sql`${t.tripStart} IS NULL OR ${t.tripEnd} IS NULL OR ${t.tripEnd} >= ${t.tripStart}`,
+    ),
+  ],
+);
 
 /**
  * Who is in a group. `position` is the group's fixed member order: it decides who

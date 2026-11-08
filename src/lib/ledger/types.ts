@@ -1,6 +1,9 @@
 import type { CategoryId } from "./categories";
 import type { SplitMode } from "./expense-form";
 
+/** Where a stored pricing rate came from. */
+export type PricedSource = "day_override" | "market";
+
 /** An expense as stored, with its payers and shares. Money is integer minor units. */
 export interface StoredExpense {
   readonly id: string;
@@ -16,6 +19,10 @@ export interface StoredExpense {
   /** SGD per 1 unit of `rateCurrency`, as exact decimal text. */
   readonly rate: string | null;
   readonly rateCurrency: string | null;
+  /** The rate the amount was priced with when saved or last re-priced (SGD per 1 unit of `pricedRateCurrency`). */
+  readonly pricedRate: string | null;
+  readonly pricedRateCurrency: string | null;
+  readonly pricedSource: PricedSource | null;
   readonly splitMethod: SplitMode;
   readonly payers: readonly { userId: string; amountMinor: number }[];
   readonly shares: readonly { userId: string; amountMinor: number; weight: number | null }[];
@@ -36,6 +43,9 @@ export interface StoredSettlement {
   readonly billedCurrency: string | null;
   readonly rate: string | null;
   readonly rateCurrency: string | null;
+  readonly pricedRate: string | null;
+  readonly pricedRateCurrency: string | null;
+  readonly pricedSource: PricedSource | null;
   readonly settledOn: string;
   readonly note: string | null;
   readonly createdBy: string;

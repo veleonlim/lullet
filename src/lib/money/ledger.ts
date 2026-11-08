@@ -5,6 +5,7 @@ import {
   toReportingCurrency,
   type BilledAmount,
   type CurrencyRate,
+  type PricedRate,
   type ConversionSource,
   type RateBook,
 } from "./convert";
@@ -28,6 +29,8 @@ export interface LedgerExpense {
   readonly currency: CurrencyCode;
   readonly billed?: BilledAmount | undefined;
   readonly rate?: CurrencyRate | undefined;
+  /** The rate the amount was priced with when saved or last re-priced. */
+  readonly priced?: PricedRate | undefined;
   /** Who paid how much, in the native currency. Sums to `amountMinor`. */
   readonly payers: readonly Allocation[];
   /** Who owes how much, in the native currency. Sums to `amountMinor`. */
@@ -44,6 +47,8 @@ export interface LedgerSettlement {
   readonly currency: CurrencyCode;
   readonly billed?: BilledAmount | undefined;
   readonly rate?: CurrencyRate | undefined;
+  /** The rate the amount was priced with when saved or last re-priced. */
+  readonly priced?: PricedRate | undefined;
 }
 
 export interface MemberBalance {

@@ -370,6 +370,9 @@ describe("expenseToFormValues", () => {
     billedCurrency: "SGD",
     rate: "1.6000000000",
     rateCurrency: "CHF",
+    pricedRate: null,
+    pricedRateCurrency: null,
+    pricedSource: null,
     splitMethod: "percent",
     payers: [
       { userId: "a", amountMinor: 10000 },
@@ -397,6 +400,9 @@ describe("expenseToFormValues", () => {
         billedCurrency: null,
         rate: null,
         rateCurrency: null,
+        pricedRate: null,
+        pricedRateCurrency: null,
+        pricedSource: null,
         shares: [
           { userId: "a", amountMinor: 15000, weight },
           { userId: "c", amountMinor: 15000, weight },

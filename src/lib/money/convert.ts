@@ -10,8 +10,12 @@ import { convertMinor, parseRate, type Rate } from "./rate";
  *   1. native    the expense is shown in SGD
  *   2. billed    the bank billed an exact SGD figure
  *   3. expense_rate  a rate set on this single expense
- *   4. day_override  the day's default rate, set by a member
- *   5. market    the day's fetched market rate
+ *   4. the rate the record was priced with when it was saved or last re-priced,
+ *      reported as the source it came from (day_override or market)
+ *   5. day_override  the day's default rate, set by a member
+ *   6. market    the day's fetched market rate
+ * Steps 5 and 6 only apply to a record that has no stored rate of its own, so a day's
+ * rate changing never moves a figure that was already priced.
  * Steps 3 to 5 convert the billed amount when the bank billed in a currency other
  * than SGD (the shown amount stays for reference), otherwise the shown amount;
  * `basis` says which. Rates are always SGD per 1 unit of that converted currency.
@@ -33,6 +37,11 @@ export interface CurrencyRate {
   readonly rate: Rate;
 }
 
+/** The rate a record was priced with, kept so the figure does not move when the day's rates do. */
+export interface PricedRate extends CurrencyRate {
+  readonly source: "day_override" | "market";
+}
+
 export interface ConvertibleAmount {
   readonly date: IsoDate;
   readonly amountMinor: Minor;
@@ -41,6 +50,8 @@ export interface ConvertibleAmount {
   readonly billed?: BilledAmount | undefined;
   /** A rate set on this one expense. */
   readonly rate?: CurrencyRate | undefined;
+  /** The rate this amount was priced with at its last save or re-price. */
+  readonly priced?: PricedRate | undefined;
 }
 
 export interface Conversion {
@@ -131,7 +142,7 @@ export function toReportingCurrency(amount: ConvertibleAmount, book: RateBook): 
     currency: amount.currency,
   };
   assertPositiveMinor(base.amountMinor, "amount to convert");
-  const chosen = pickRate(amount.date, base.currency, amount.rate, book);
+  const chosen = pickRate(amount, base.currency, book);
   if (!chosen) {
     throw new MoneyError(
       "missing_rate",
@@ -147,17 +158,54 @@ export function toReportingCurrency(amount: ConvertibleAmount, book: RateBook): 
 }
 
 function pickRate(
-  date: IsoDate,
+  amount: ConvertibleAmount,
   currency: CurrencyCode,
-  expenseRate: CurrencyRate | undefined,
   book: RateBook,
 ): { rate: Rate; source: ConversionSource } | undefined {
-  if (expenseRate?.currency === currency) {
-    return { rate: expenseRate.rate, source: "expense_rate" };
+  if (amount.rate?.currency === currency) {
+    return { rate: amount.rate.rate, source: "expense_rate" };
   }
+  if (amount.priced?.currency === currency) {
+    return { rate: amount.priced.rate, source: amount.priced.source };
+  }
+  return bookRate(amount.date, currency, book);
+}
+
+/** The day's rate in the book: the group's own rate if it set one, else the market rate. */
+export function bookRate(
+  date: IsoDate,
+  currency: CurrencyCode,
+  book: RateBook,
+): PricedRate | undefined {
   const override = book.dayOverride(date, currency);
-  if (override) return { rate: override, source: "day_override" };
+  if (override) return { currency, rate: override, source: "day_override" };
   const market = book.market(date, currency);
-  if (market) return { rate: market, source: "market" };
+  if (market) return { currency, rate: market, source: "market" };
   return undefined;
+}
+
+/**
+ * The currency whose rate prices this amount, or null when it is priced without one: native SGD,
+ * billed in SGD, or a rate set on the record itself.
+ */
+export function ratePricedCurrency(
+  amount: Pick<ConvertibleAmount, "currency" | "billed" | "rate">,
+): CurrencyCode | null {
+  if (amount.currency === REPORTING_CURRENCY || amount.billed?.currency === REPORTING_CURRENCY) {
+    return null;
+  }
+  const currency = amount.billed?.currency ?? amount.currency;
+  return amount.rate?.currency === currency ? null : currency;
+}
+
+/**
+ * The rate to store on a record so its figure stays put: the book's rate for the currency that
+ * gets converted (see `ratePricedCurrency`), or null when no rate prices the amount or the book has
+ * none yet. Any `priced` rate on the amount is not consulted.
+ */
+export function pricedRateFor(amount: ConvertibleAmount, book: RateBook): PricedRate | null {
+  const currency = ratePricedCurrency(amount);
+  if (currency === null) return null;
+  assertIsoDate(amount.date);
+  return bookRate(amount.date, currency, book) ?? null;
 }
