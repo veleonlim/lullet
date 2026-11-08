@@ -651,6 +651,60 @@ describe("confirming", () => {
     expect((await flows())[0]?.step).toBe("confirming");
   });
 
+  describe("a Confirm whose handler never finished", () => {
+    const advance = (ms: number) => {
+      world.clock.now = new Date(world.clock.now.getTime() + ms);
+    };
+    const stuckConfirm = async (): Promise<FakeMessage> => {
+      const summary = await toSummary();
+      await db
+        .update(s.telegramSplitFlows)
+        .set({ step: "confirming", updatedAt: world.clock.now });
+      return summary;
+    };
+
+    it("is still being added under two minutes: /cancel, text and taps wait", async () => {
+      const summary = await stuckConfirm();
+      advance(119_000);
+      await world.say(ALEX, "/cancel");
+      expect(last(ALEX).text).toBe("One moment, I am adding it.");
+      await world.say(ALEX, "hello");
+      expect(last(ALEX).text).toBe("One moment, I am adding it.");
+      await tap(ALEX, "Confirm", summary);
+      expect(fake.answers.at(-1)?.text).toBe("Adding it now...");
+      expect((await flows())[0]?.step).toBe("confirming");
+      expect(await ledger()).toHaveLength(0);
+    });
+
+    it("can be cancelled after two minutes", async () => {
+      await stuckConfirm();
+      advance(121_000);
+      await world.say(ALEX, "/cancel");
+      expect(last(ALEX).text).toBe("Cancelled. Nothing was added.");
+      expect(await flows()).toHaveLength(0);
+      expect(await ledger()).toHaveLength(0);
+    });
+
+    it("can be confirmed again after two minutes, and adds the expense once", async () => {
+      const summary = await stuckConfirm();
+      advance(121_000);
+      await tap(ALEX, "Confirm", summary);
+      await tap(ALEX, "Confirm", summary);
+      expect(await ledger()).toHaveLength(1);
+      expect(await flows()).toHaveLength(0);
+      expect(fake.messagesTo(GROUP_CHAT)).toHaveLength(1);
+    });
+
+    it("starts a fresh /split after two minutes", async () => {
+      await stuckConfirm();
+      advance(121_000);
+      await split(ALEX);
+      expect(last(ALEX).text).toContain("What was it for");
+      expect((await flows())[0]?.step).toBe("title");
+      expect(await ledger()).toHaveLength(0);
+    });
+  });
+
   it("keeps the summary when no exchange rate can be had, and adds it on a retry", async () => {
     await split(ALEX);
     await answer(ALEX, "Souvenir");

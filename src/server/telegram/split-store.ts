@@ -23,6 +23,9 @@ const EXPIRED_KEEP_MS = 24 * 3_600_000;
 /** Between the Confirm tap and the expense being saved; no other tap changes the flow meanwhile. */
 export const CONFIRMING = "confirming";
 
+/** Saving takes seconds; a flow still `confirming` after this long lost its handler and reads as `summary` again. */
+export const CONFIRM_STALE_MS = 2 * 60_000;
+
 export interface SplitFlow {
   readonly id: string;
   readonly groupId: string;
@@ -56,12 +59,23 @@ function toFlow(row: typeof s.telegramSplitFlows.$inferSelect): SplitFlow | null
   };
 }
 
-/** The member's flow, with an expired or unreadable one removed and reported as such. */
+/** The member's flow, with an expired or unreadable one removed and reported as such, and a stale `confirming` one released. */
 export async function findFlow(
   db: Database,
   who: { readonly groupId: string; readonly userId: string },
   now: Date,
 ): Promise<FlowLookup> {
+  await db
+    .update(s.telegramSplitFlows)
+    .set({ step: "summary", version: sql`${s.telegramSplitFlows.version} + 1`, updatedAt: now })
+    .where(
+      and(
+        eq(s.telegramSplitFlows.groupId, who.groupId),
+        eq(s.telegramSplitFlows.userId, who.userId),
+        eq(s.telegramSplitFlows.step, CONFIRMING),
+        lt(s.telegramSplitFlows.updatedAt, new Date(now.getTime() - CONFIRM_STALE_MS)),
+      ),
+    );
   const [row] = await db
     .select()
     .from(s.telegramSplitFlows)
