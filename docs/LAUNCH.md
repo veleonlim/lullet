@@ -238,7 +238,7 @@ page.
    ```
 
    It checks the bot token first, then registers the webhook with its secret, the command list
-   (`/import`, `/rate`, `/login`, `/alias`, `/help`) and the **Open lullet** button, and prints the bot's
+   (`/import`, `/split`, `/cancel`, `/rate`, `/login`, `/alias`, `/help`) and the **Open lullet** button, and prints the bot's
    username and how many updates are waiting. It is safe to run again whenever you like, for
    example after changing the address.
 

@@ -206,6 +206,59 @@ test.describe("Telegram bot", () => {
     expect(sent.map((c) => c.params.chat_id)).toEqual([alex.telegramUserId]);
   });
 
+  test("/split asks the questions in a private chat and adds the expense", async ({
+    page,
+    request,
+  }) => {
+    const me = alex.telegramUserId;
+    const say = async (text: string) => {
+      expect((await deliver(request, textUpdate(dm(alex), text))).status()).toBe(200);
+    };
+    const press = async (label: string) => tap(request, dm(alex), fake.lastTo(me), label);
+
+    await say("/split");
+    await settled(me, (m) => m.text.includes("What was it for"));
+    await say("Museum tickets");
+    await settled(me, (m) => m.text.includes("How much was it"));
+    await say("S$30");
+    await settled(me, (m) => m.text.includes("Who paid?"));
+    await press("Done");
+    await settled(me, (m) => m.text.includes("Who shared it?"));
+    await press("Done");
+    await settled(me, (m) => m.text.includes("How should it be split?"));
+    await press("By percent");
+    await settled(me, (m) => m.text.includes("What percent does each person pay?"));
+    // The last person takes the rest: 40, 30, 20 and 10.
+    await say("40 30 20");
+    await settled(me, (m) => m.text.includes("When was it?"));
+    await press("Today");
+    await settled(me, (m) => m.text.includes("Pick a category"));
+    await press("Sightseeing");
+    const summary = await settled(me, (m) => m.text.includes("Check this expense"));
+    expect(summary.text).toContain("Split by percent: Alex 40% S$12.00");
+    expect(await expenseCount(page)).toBe("0 expenses");
+
+    await press("Confirm");
+    await settled(me, (m) => m.text.startsWith("<b>Added</b>"));
+    expect(await expenseCount(page)).toBe("1 expense");
+    await expect(page.getByText("Museum tickets")).toBeVisible();
+    const note = await settled(GROUP_CHAT, (m) => m.text.includes("Museum tickets"));
+    expect(note.text).toBe("<b>Alex</b> added Museum tickets, S$30.00 (paid by Alex).");
+  });
+
+  test("/split in the group only points to the private chat", async ({ request }) => {
+    await deliver(
+      request,
+      textUpdate(
+        { fromId: alex.telegramUserId, chatId: GROUP_CHAT, chatType: "supergroup" },
+        "/split",
+      ),
+    );
+    const reply = await settled(GROUP_CHAT, (m) => m.text.includes("/split works in"));
+    expect(reply.text).toContain("private chat");
+    expect(fake.messagesTo(alex.telegramUserId)).toHaveLength(0);
+  });
+
   test("refuses webhook calls without the secret token", async ({ request }) => {
     expect(
       (await deliver(request, textUpdate(dm(alex), "/help"), "wrong-secret-0123456789")).status(),
