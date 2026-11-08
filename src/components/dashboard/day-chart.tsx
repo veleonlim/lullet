@@ -38,7 +38,7 @@ export function DayChart({
   /** Names the chart for assistive technology, e.g. "Spending per day, everyone". */
   title: string;
 }) {
-  const peak = Math.max(1, ...days.map((day) => Math.max(day.spentMinor, day.budgetMinor ?? 0)));
+  const peak = Math.max(0, ...days.map((day) => Math.max(day.spentMinor, day.budgetMinor ?? 0)));
   const ceiling = niceCeiling(peak);
   const every = labelEvery(days.length);
   const gridlines = [0, 0.5, 1];

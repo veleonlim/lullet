@@ -152,6 +152,12 @@ test.describe("the dashboard totals match the ledger", () => {
     await expect(page.getByRole("heading", { level: 1, name: "Train" })).toBeVisible();
   });
 
+  test("an empty chart still has a sensible axis", async ({ page }) => {
+    await page.goto("/dashboard");
+    const axis = page.getByTestId("day-chart").locator("div.w-12 > span");
+    await expect(axis).toHaveText(["S$0", "S$0.50", "S$1"]);
+  });
+
   test("filters to one person's share", async ({ page }) => {
     await addExpense(page, {
       description: "Gelato for two",
