@@ -148,8 +148,8 @@ export const ENV_VARIABLES: readonly EnvVariable[] = [
   },
   {
     name: "S3_ENDPOINT",
-    source: "Cloudflare R2: the S3 API address of your account",
-    requirement: "required",
+    source: "Optional. Cloudflare R2: the S3 API address of your account",
+    requirement: "optional",
     example: "https://0123456789abcdef.r2.cloudflarestorage.com",
     validate: (value) => {
       const url = parseUrl(value);
@@ -160,8 +160,8 @@ export const ENV_VARIABLES: readonly EnvVariable[] = [
   },
   {
     name: "S3_BUCKET",
-    source: "Cloudflare R2: the bucket name",
-    requirement: "required",
+    source: "Optional. Cloudflare R2: the bucket name",
+    requirement: "optional",
     example: "lullet-screenshots",
     validate: (value) =>
       /^[a-z0-9][a-z0-9-]{1,61}[a-z0-9]$/.test(value)
@@ -170,14 +170,14 @@ export const ENV_VARIABLES: readonly EnvVariable[] = [
   },
   {
     name: "S3_ACCESS_KEY_ID",
-    source: "Cloudflare R2: the API token's Access Key ID",
-    requirement: "required",
+    source: "Optional. Cloudflare R2: the API token's Access Key ID",
+    requirement: "optional",
     example: "0123456789abcdef0123456789abcdef",
   },
   {
     name: "S3_SECRET_ACCESS_KEY",
-    source: "Cloudflare R2: the API token's Secret Access Key (shown once)",
-    requirement: "required",
+    source: "Optional. Cloudflare R2: the API token's Secret Access Key (shown once)",
+    requirement: "optional",
     example: "0123...64-hex-characters...",
   },
   {
@@ -199,13 +199,14 @@ export const ENV_VARIABLES: readonly EnvVariable[] = [
   },
   {
     name: "LULLET_STORAGE_DIR",
-    source: "Development only; folder for screenshots when R2 is not configured",
+    source: "Development only; folder for screenshots when they are not kept in the database",
     requirement: "test-only",
     example: ".data/screenshots",
   },
   {
     name: "LULLET_STORAGE",
-    source: "Tests only; local to allow folder storage in a production build",
+    source:
+      "Tests only; local to allow folder storage in a production build, postgres to keep screenshots in the database outside production",
     requirement: "test-only",
     example: "local",
     validate: (value) => (value === "local" ? "must not be set in production" : null),
@@ -239,6 +240,9 @@ export const ENV_VARIABLES: readonly EnvVariable[] = [
   },
 ];
 
+/** Screenshots go to R2 only when all four are set; otherwise they stay in the database. */
+const S3_VARIABLES = ["S3_ENDPOINT", "S3_BUCKET", "S3_ACCESS_KEY_ID", "S3_SECRET_ACCESS_KEY"];
+
 export interface EnvProblem {
   readonly name: string;
   readonly message: string;
@@ -257,6 +261,17 @@ export function checkProductionEnv(env: Env): EnvProblem[] {
     }
     const problem = variable.validate?.(value) ?? null;
     if (problem) problems.push({ name: variable.name, message: problem });
+  }
+  // Half an R2 setup would silently fall back to the database, which is not what was meant.
+  const unsetS3 = S3_VARIABLES.filter((name) => (env[name]?.trim() ?? "") === "");
+  if (unsetS3.length > 0 && unsetS3.length < S3_VARIABLES.length) {
+    for (const name of unsetS3) {
+      problems.push({
+        name,
+        message:
+          "is not set (the four S3_* variables for Cloudflare R2 go together: set all or none; with none, screenshots are kept briefly in the database)",
+      });
+    }
   }
   return problems;
 }

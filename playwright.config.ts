@@ -23,10 +23,9 @@ process.env.TELEGRAM_BOT_TOKEN = "123456:TEST-bot-token-for-lullet-tests-only";
 process.env.APP_URL = baseURL;
 
 // Screenshot import: the model is replaced by canned answers (one JSON file per image hash, written
-// by the tests) and originals are kept in a local folder. Nothing here calls Claude or Cloudflare.
+// by the tests) and originals are kept in the database, as in production. Nothing here calls Claude.
 const e2eDataDir = path.resolve(".data", "e2e", String(port));
 process.env.E2E_STUB_DIR = path.join(e2eDataDir, "stub");
-process.env.E2E_STORAGE_DIR = path.join(e2eDataDir, "screenshots");
 process.env.E2E_CRON_SECRET = "e2e-cron-secret-0123456789";
 
 // Telegram bot: the Bot API is a fake server run by the tests themselves (tests/e2e/telegram.spec.ts),
@@ -69,8 +68,7 @@ export default defineConfig({
       LULLET_SKIP_ENV_CHECK: "1",
       LULLET_EXTRACTOR: "stub",
       LULLET_STUB_DIR: process.env.E2E_STUB_DIR,
-      LULLET_STORAGE: "local",
-      LULLET_STORAGE_DIR: process.env.E2E_STORAGE_DIR,
+      LULLET_STORAGE: "postgres",
       CRON_SECRET: process.env.E2E_CRON_SECRET,
       TELEGRAM_WEBHOOK_SECRET: process.env.E2E_TELEGRAM_WEBHOOK_SECRET,
       TELEGRAM_GROUP_CHAT_ID: process.env.E2E_TELEGRAM_GROUP_CHAT_ID,

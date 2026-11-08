@@ -86,7 +86,7 @@ export class DraftInvalidError extends ImportError {
   }
 }
 
-/** The original is no longer stored (deleted after retention, or never kept). */
+/** The original is no longer stored (deleted once the import was confirmed or discarded, or never kept). */
 export class ImageGoneError extends ImportError {
   constructor() {
     super("unavailable", "The original screenshot is no longer stored");

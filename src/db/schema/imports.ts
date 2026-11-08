@@ -3,6 +3,7 @@ import {
   boolean,
   char,
   check,
+  customType,
   date,
   foreignKey,
   index,
@@ -44,7 +45,7 @@ export const imports = pgTable(
     status: importStatus().notNull().default("draft"),
     /** SHA-256 of the original image, lowercase hex. Identical re-uploads are rejected. */
     imageSha256: char("image_sha256", { length: 64 }).notNull(),
-    /** Object storage key of the original. Cleared when it is deleted after the retention period. */
+    /** Object storage key of the original. Cleared when the original is deleted (on confirm or cancel, or by the retention job). */
     storageKey: text("storage_key"),
     imageDeletedAt: timestamptz("image_deleted_at"),
     caption: text(),
@@ -152,3 +153,25 @@ export const importRows = pgTable(
     ),
   ],
 );
+
+/** bytea for `drizzle-orm`, read and written as a Node Buffer. */
+const bytea = customType<{ data: Buffer; driverData: Buffer }>({
+  dataType() {
+    return "bytea";
+  },
+});
+
+/**
+ * Original screenshots kept in the database itself (the default storage, so no object store
+ * account is needed). It is deliberately not linked to `imports`: the bytes are stored before the
+ * import row exists. An image lives from upload until the import is confirmed or discarded
+ * (never past the draft's 24 hours), and the retention job sweeps anything left behind. At most
+ * `MAX_UPLOAD_BYTES` each.
+ */
+export const importImages = pgTable("import_images", {
+  /** The same key as `imports.storage_key`, for example `imports/<group>/<import>.png`. */
+  storageKey: text("storage_key").primaryKey(),
+  contentType: text("content_type").notNull(),
+  bytes: bytea().notNull(),
+  createdAt: timestamptz("created_at").notNull().defaultNow(),
+});

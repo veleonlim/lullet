@@ -8,7 +8,8 @@ money: every service has a free plan that is plenty for four people. Plan on abo
 
 - The app on **Vercel** (Hobby plan), at an address like `https://lullet-family.vercel.app`.
 - The ledger in **Neon** (free Postgres), in Frankfurt.
-- Original screenshots in **Cloudflare R2** (free storage), deleted after 30 days.
+- Original screenshots kept briefly in the same Neon database: only while you review a draft, and
+  deleted the moment the import is added or discarded. No other account is needed for them.
 - A **Telegram bot** the four of you talk to, and that opens the app inside Telegram.
 - Screenshots read by **Claude** through your own Claude Console API key (pay as you go; a few
   cents for a whole trip).
@@ -53,10 +54,6 @@ TELEGRAM_BOT_TOKEN=
 TELEGRAM_WEBHOOK_SECRET=
 TELEGRAM_GROUP_CHAT_ID=
 ANTHROPIC_API_KEY=
-S3_ENDPOINT=
-S3_BUCKET=
-S3_ACCESS_KEY_ID=
-S3_SECRET_ACCESS_KEY=
 CRON_SECRET=
 ```
 
@@ -120,20 +117,17 @@ The app never changes the database structure on its own.
 
 ---
 
-## Part 3. Screenshot storage (Cloudflare R2)
+## Part 3. Screenshot storage (nothing to do)
 
-1. Go to <https://dash.cloudflare.com> and sign up. Open **R2 Object Storage** in the sidebar.
-   Cloudflare may ask for a payment method to switch R2 on; the free allowance (10 GB) is far more
-   than a trip's screenshots need.
-2. **Create bucket**. Name it `lullet-screenshots`. Leave it **private**: never turn on public
-   access or a public domain. Copy the name into `S3_BUCKET`.
-3. On the R2 overview page, find your **account id** and build the address
-   `https://<account id>.r2.cloudflarestorage.com`. Copy it into `S3_ENDPOINT` (no bucket name and
-   nothing after `.com`).
-4. **Manage API tokens**, then **Create API token**. Permission: **Object Read & Write**. Limit it to
-   the `lullet-screenshots` bucket. Create it.
-5. Cloudflare shows an **Access Key ID** and a **Secret Access Key** once. Copy them into
-   `S3_ACCESS_KEY_ID` and `S3_SECRET_ACCESS_KEY` straight away; the secret cannot be shown again.
+There is nothing to set up here. While you review a draft, the app keeps the screenshot in your
+Neon database so it can show it next to the amounts it read, and deletes it as soon as the import is
+added or discarded (drafts that nobody finishes are cleaned up after 24 hours). A screenshot is
+never larger than 4 MB, so this stays tiny next to Neon's free 0.5 GB.
+
+_Optional, only if you ever want it:_ original screenshots can go to a private Cloudflare R2 bucket
+instead. Set all four of `S3_ENDPOINT`, `S3_BUCKET`, `S3_ACCESS_KEY_ID` and `S3_SECRET_ACCESS_KEY`
+(see [ENVIRONMENT.md](ENVIRONMENT.md)) and the app uses it; leave all four empty to keep the
+default.
 
 ---
 
@@ -280,7 +274,7 @@ wrong" at the end.
 
 **D. Check the daily clean-up (once).** On Vercel, **Settings, Cron Jobs** should list
 `/api/cron/retention`. To run it by hand, put your `CRON_SECRET` in this command (it should print
-three numbers, all zero on day one):
+four numbers, all zero on day one):
 
 ```sh
 curl -X POST -H "Authorization: Bearer <your CRON_SECRET>" https://<project name>.vercel.app/api/cron/retention
@@ -298,8 +292,8 @@ When all of this works, you have launched. Ask the other three to press Start an
   from Vercel's settings and your password manager). Better still, keep the values in a password
   manager, not in a file.
 - Take a first backup export (see [BACKUPS.md](BACKUPS.md)).
-- Note the date and place of every secret in a password manager: the Neon, Cloudflare, Claude,
-  Vercel and Telegram logins.
+- Note the date and place of every secret in a password manager: the Neon, Claude, Vercel and
+  Telegram logins.
 
 ---
 
@@ -345,8 +339,8 @@ curl "https://api.telegram.org/bot<YOUR TOKEN>/deleteWebhook"
 
 Turn it back on with `pnpm telegram:setup`.
 
-**A secret leaked.** Replace it: make a new value (BotFather `/revoke`, Cloudflare token delete and
-recreate, Claude key delete and recreate, or a new `openssl` value), update Vercel, redeploy. For a
+**A secret leaked.** Replace it: make a new value (BotFather `/revoke`, Claude key delete and
+recreate, or a new `openssl` value), update Vercel, redeploy. For a
 new `SESSION_SECRET` everyone is signed out and signs in again with `/login`. For a new
 `TELEGRAM_WEBHOOK_SECRET`, run `pnpm telegram:setup` again.
 

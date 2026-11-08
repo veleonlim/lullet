@@ -36,23 +36,23 @@ production (the start-up check refuses `LULLET_STORAGE=local`, `LULLET_EXTRACTOR
 | `TELEGRAM_GROUP_CHAT_ID`  | Telegram       | required | `-1001234567890`                                                                               | The numeric id of the family group chat (usually negative). The one chat the bot serves.                                                                                                           |
 | `TELEGRAM_BOT_USERNAME`   | BotFather      | optional | `lullet_family_bot`                                                                            | The bot's username, with or without `@`. When unset the bot asks Telegram once per server instance.                                                                                                |
 | `ANTHROPIC_API_KEY`       | Claude Console | required | `sk-ant-api03-...`                                                                             | Reads screenshots. Without it every upload would become an empty draft to fill in by hand, so production insists on it.                                                                            |
-| `S3_ENDPOINT`             | Cloudflare R2  | required | `https://0123456789abcdef.r2.cloudflarestorage.com`                                            | The account's S3 API address. No bucket name and no path.                                                                                                                                          |
-| `S3_BUCKET`               | Cloudflare R2  | required | `lullet-screenshots`                                                                           | The private bucket that holds original screenshots.                                                                                                                                                |
-| `S3_ACCESS_KEY_ID`        | Cloudflare R2  | required | `0123456789abcdef0123456789abcdef`                                                             | Access Key ID of an R2 API token with Object Read and Write on that bucket.                                                                                                                        |
-| `S3_SECRET_ACCESS_KEY`    | Cloudflare R2  | required | `0123...` (64 hex characters)                                                                  | Secret Access Key of the same token. Shown only once when the token is created.                                                                                                                    |
+| `S3_ENDPOINT`             | Cloudflare R2  | optional | `https://0123456789abcdef.r2.cloudflarestorage.com`                                            | Optional, only for keeping screenshots in R2 instead of the database: set all four `S3_*` or none. The account's S3 API address. No bucket name and no path.                                       |
+| `S3_BUCKET`               | Cloudflare R2  | optional | `lullet-screenshots`                                                                           | The private bucket that holds original screenshots.                                                                                                                                                |
+| `S3_ACCESS_KEY_ID`        | Cloudflare R2  | optional | `0123456789abcdef0123456789abcdef`                                                             | Access Key ID of an R2 API token with Object Read and Write on that bucket.                                                                                                                        |
+| `S3_SECRET_ACCESS_KEY`    | Cloudflare R2  | optional | `0123...` (64 hex characters)                                                                  | Secret Access Key of the same token. Shown only once when the token is created.                                                                                                                    |
 | `CRON_SECRET`             | you            | required | `5d1e...` (64 hex characters)                                                                  | Vercel Cron sends it as `Authorization: Bearer ...` to the daily clean-up. Without it the clean-up refuses every call, so screenshots would never be deleted. Make it with `openssl rand -hex 32`. |
 | `IMPORT_DAILY_LIMIT`      | you            | optional | `30`                                                                                           | Screenshot uploads per person per rolling day (each costs a model call). Default 30.                                                                                                               |
 
 ## Test and development only
 
-| Variable                | Used for                                                                                                  |
-| ----------------------- | --------------------------------------------------------------------------------------------------------- |
-| `LULLET_STORAGE_DIR`    | Folder for screenshots when R2 is not configured (development). Default `.data/screenshots`.              |
-| `LULLET_STORAGE`        | `local` allows folder storage in a production build. The end to end suite sets it. Refused in production. |
-| `LULLET_EXTRACTOR`      | `stub` answers from canned files instead of calling Claude. Refused in production.                        |
-| `LULLET_STUB_DIR`       | The folder of canned answers for `LULLET_EXTRACTOR=stub`.                                                 |
-| `TELEGRAM_API_ROOT`     | A fake Bot API server instead of `https://api.telegram.org`. Refused in production.                       |
-| `LULLET_SKIP_ENV_CHECK` | Switches the start-up check off. The end to end suite sets it. Refused by `pnpm check:env`.               |
+| Variable                | Used for                                                                                                                                                                               |
+| ----------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `LULLET_STORAGE_DIR`    | Folder for screenshots in development, when they are not kept in the database. Default `.data/screenshots`.                                                                            |
+| `LULLET_STORAGE`        | `local` allows folder storage in a production build (the end to end suite sets it); `postgres` keeps screenshots in the database outside production. `local` is refused in production. |
+| `LULLET_EXTRACTOR`      | `stub` answers from canned files instead of calling Claude. Refused in production.                                                                                                     |
+| `LULLET_STUB_DIR`       | The folder of canned answers for `LULLET_EXTRACTOR=stub`.                                                                                                                              |
+| `TELEGRAM_API_ROOT`     | A fake Bot API server instead of `https://api.telegram.org`. Refused in production.                                                                                                    |
+| `LULLET_SKIP_ENV_CHECK` | Switches the start-up check off. The end to end suite sets it. Refused by `pnpm check:env`.                                                                                            |
 
 ## Set by the host, not by you
 
@@ -65,5 +65,5 @@ production (the start-up check refuses `LULLET_STORAGE=local`, `LULLET_EXTRACTOR
 - The app never logs a secret, a request body, a screenshot or a model reply. Errors are logged by
   kind only. The check above names variables, never values.
 - If a secret leaks (pasted in a chat, committed by mistake), replace it: make a new value, update
-  Vercel, redeploy. For `TELEGRAM_BOT_TOKEN` use BotFather's `/revoke`; for the R2 token, delete
+  Vercel, redeploy. For `TELEGRAM_BOT_TOKEN` use BotFather's `/revoke`; for the R2 token (if you use R2), delete
   and recreate it in Cloudflare; for the Claude key, delete it in the Console.

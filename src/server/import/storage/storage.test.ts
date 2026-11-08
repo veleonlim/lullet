@@ -8,9 +8,12 @@ import {
   S3ServiceException,
 } from "@aws-sdk/client-s3";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { storageContract as contract } from "@/test-support/storage-contract";
+import type { Database } from "@/db/client";
 import {
   createStorageFromEnv,
   LocalFileStorage,
+  PostgresStorage,
   S3Storage,
   assertStorageKey,
   storageKeyFor,
@@ -18,44 +21,6 @@ import {
 import type { ImageStorage } from "./types";
 
 const BYTES = Uint8Array.from([1, 2, 3, 4, 5]);
-
-/** The behaviour every adapter must have. */
-function contract(name: string, make: () => Promise<ImageStorage>) {
-  describe(`${name} adapter`, () => {
-    it("stores, reads back and deletes an object", async () => {
-      const storage = await make();
-      const key = storageKeyFor("g1", "i1", "png");
-      await storage.put(key, BYTES, "image/png");
-      const read = await storage.get(key);
-      expect(Array.from(read?.bytes ?? [])).toEqual([1, 2, 3, 4, 5]);
-      expect(read?.contentType).toBe("image/png");
-      await storage.delete(key);
-      expect(await storage.get(key)).toBeNull();
-    });
-
-    it("reports a missing object as null and deleting it is not an error", async () => {
-      const storage = await make();
-      expect(await storage.get("imports/g1/missing.png")).toBeNull();
-      await expect(storage.delete("imports/g1/missing.png")).resolves.toBeUndefined();
-    });
-
-    it("overwrites an existing key", async () => {
-      const storage = await make();
-      await storage.put("imports/g1/a.jpg", BYTES, "image/jpeg");
-      await storage.put("imports/g1/a.jpg", Uint8Array.from([9]), "image/jpeg");
-      expect(Array.from((await storage.get("imports/g1/a.jpg"))?.bytes ?? [])).toEqual([9]);
-    });
-
-    it("refuses keys that could escape the bucket or directory", async () => {
-      const storage = await make();
-      for (const key of ["../x", "/etc/passwd", "a/../../b", "", "a//b", "a b", "x".repeat(301)]) {
-        await expect(storage.put(key, BYTES, "image/png")).rejects.toThrow("Invalid storage key");
-        await expect(storage.get(key)).rejects.toThrow("Invalid storage key");
-        await expect(storage.delete(key)).rejects.toThrow("Invalid storage key");
-      }
-    });
-  });
-}
 
 let directory = "";
 beforeAll(async () => {
@@ -170,25 +135,51 @@ describe("createStorageFromEnv", () => {
     S3_ACCESS_KEY_ID: "i",
     S3_SECRET_ACCESS_KEY: "s",
   };
+  const database = {} as Database;
+  const noDatabase = () => {
+    throw new Error("the database must not be touched");
+  };
 
-  it("uses R2 when all four settings are present", () => {
-    expect(createStorageFromEnv({ ...s3, NODE_ENV: "production" })).toBeInstanceOf(S3Storage);
+  it("uses R2 when all four settings are present, and never opens the database for it", () => {
+    expect(createStorageFromEnv({ ...s3, NODE_ENV: "production" }, noDatabase)).toBeInstanceOf(
+      S3Storage,
+    );
+  });
+
+  it("keeps screenshots in the database in production when R2 is not set up", () => {
+    expect(createStorageFromEnv({ NODE_ENV: "production" }, () => database)).toBeInstanceOf(
+      PostgresStorage,
+    );
+    // Half an R2 setup is not R2.
+    expect(
+      createStorageFromEnv({ ...s3, S3_BUCKET: "", NODE_ENV: "production" }, () => database),
+    ).toBeInstanceOf(PostgresStorage);
   });
 
   it("uses a local directory in development and test", () => {
-    expect(createStorageFromEnv({ NODE_ENV: "development" })).toBeInstanceOf(LocalFileStorage);
+    expect(createStorageFromEnv({ NODE_ENV: "development" }, noDatabase)).toBeInstanceOf(
+      LocalFileStorage,
+    );
     expect(
-      createStorageFromEnv({ NODE_ENV: "test", LULLET_STORAGE_DIR: directory }),
+      createStorageFromEnv({ NODE_ENV: "test", LULLET_STORAGE_DIR: directory }, noDatabase),
     ).toBeInstanceOf(LocalFileStorage);
   });
 
-  it("refuses to fall back to local files in production unless asked to", () => {
-    expect(() => createStorageFromEnv({ NODE_ENV: "production" })).toThrow("not configured");
-    expect(() => createStorageFromEnv({ ...s3, S3_BUCKET: "", NODE_ENV: "production" })).toThrow(
-      "not configured",
-    );
+  it("lets the settings choose the other one explicitly", () => {
     expect(
-      createStorageFromEnv({ NODE_ENV: "production", LULLET_STORAGE: "local" }),
+      createStorageFromEnv({ NODE_ENV: "production", LULLET_STORAGE: "local" }, noDatabase),
     ).toBeInstanceOf(LocalFileStorage);
+    expect(
+      createStorageFromEnv({ NODE_ENV: "development", LULLET_STORAGE: "postgres" }, () => database),
+    ).toBeInstanceOf(PostgresStorage);
+  });
+});
+
+describe("Postgres adapter keys", () => {
+  it("checks the key before it touches the database", async () => {
+    const storage = new PostgresStorage({} as Database);
+    await expect(storage.get("../x")).rejects.toThrow("Invalid storage key");
+    await expect(storage.put("a b", BYTES, "image/png")).rejects.toThrow("Invalid storage key");
+    await expect(storage.delete("")).rejects.toThrow("Invalid storage key");
   });
 });

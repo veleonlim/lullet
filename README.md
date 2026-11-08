@@ -6,14 +6,14 @@ Telegram is the capture and edit surface; this web app is the database and dashb
 
 ## Stack
 
-| Area     | Choice                                                                           |
-| -------- | -------------------------------------------------------------------------------- |
-| App      | Next.js (App Router), React, TypeScript (strict), Tailwind CSS                   |
-| Database | PostgreSQL 18, Drizzle ORM and drizzle-kit migrations, `pg` (node-postgres)      |
-| Tests    | Vitest, fast-check (property tests), Playwright (phone and desktop projects)     |
-| Tooling  | pnpm, ESLint (typescript-eslint strict), Prettier                                |
-| CI       | GitHub Actions                                                                   |
-| Hosting  | Vercel Hobby, Neon Postgres, Cloudflare R2; see [docs/LAUNCH.md](docs/LAUNCH.md) |
+| Area     | Choice                                                                       |
+| -------- | ---------------------------------------------------------------------------- |
+| App      | Next.js (App Router), React, TypeScript (strict), Tailwind CSS               |
+| Database | PostgreSQL 18, Drizzle ORM and drizzle-kit migrations, `pg` (node-postgres)  |
+| Tests    | Vitest, fast-check (property tests), Playwright (phone and desktop projects) |
+| Tooling  | pnpm, ESLint (typescript-eslint strict), Prettier                            |
+| CI       | GitHub Actions                                                               |
+| Hosting  | Vercel Hobby, Neon Postgres; see [docs/LAUNCH.md](docs/LAUNCH.md)            |
 
 All versions are pinned exactly in `package.json`. TypeScript is held at 6.0 because typescript-eslint does not support 7 yet.
 
@@ -151,7 +151,7 @@ Routes: `/expenses` (list grouped by day, newest first, with a Deleted filter), 
 
 The four agreed steps: upload a screenshot, have it read into one row per payment (with a category), choose who paid (everyone else shares equally by default), then check, change and confirm. Nothing reaches the ledger until the uploader confirms. Code: `src/lib/import` (pure logic), `src/server/import` (storage, model, data access, jobs), `src/components/import` and the `/imports` pages and `/api/imports` routes.
 
-**Upload** (`/imports/new`, `POST /api/imports`). Phone friendly. The server looks at the real bytes (PNG, JPEG or WebP; never the file name), caps the file at 4 MB (Vercel's body limit is 4.5 MB; large camera photos are shrunk in the browser first), limits each person to 30 uploads a rolling day, removes all metadata (EXIF with GPS and camera details, XMP, text chunks, comments; the pixels are not re-encoded), and takes the SHA-256 of what is stored. The same image (or the same one with different metadata) is rejected as already imported before any model call. Originals live behind the `ImageStorage` interface: Cloudflare R2 (`S3Storage`) in production, local files (`LocalFileStorage`) in development and tests. The bucket is never public and no signed link is handed out: `GET /api/imports/[id]/image` serves the bytes to signed-in members of the group.
+**Upload** (`/imports/new`, `POST /api/imports`). Phone friendly. The server looks at the real bytes (PNG, JPEG or WebP; never the file name), caps the file at 4 MB (Vercel's body limit is 4.5 MB; large camera photos are shrunk in the browser first), limits each person to 30 uploads a rolling day, removes all metadata (EXIF with GPS and camera details, XMP, text chunks, comments; the pixels are not re-encoded), and takes the SHA-256 of what is stored. The same image (or the same one with different metadata) is rejected as already imported before any model call. Originals live behind the `ImageStorage` interface: the database itself in production (`PostgresStorage`, a `bytea` column in `import_images`, so no object store account is needed; at most 4 MB each and only while a draft is open), local files (`LocalFileStorage`) in development and tests, and Cloudflare R2 (`S3Storage`) as an optional extra when all four `S3_*` variables are set. Nothing is ever public and no signed link is handed out: `GET /api/imports/[id]/image` serves the bytes to signed-in members of the group.
 
 **Reading.** `AnthropicExtractor` sends one request to `claude-haiku-5-5` with the official SDK: the image and a short prompt, no tools, the answer constrained by a JSON schema (`output_config.format`) and validated again with zod. The screenshot is treated as untrusted data. Amounts come back as the text shown on screen plus the model's own reading; our code re-parses the text with the money library and flags any disagreement, never fixes silently, and never guesses a currency (no visible currency means "needs input"). A refusal, a `max_tokens` stop or a reply that is not exactly the agreed shape gives an empty draft ("enter manually"), never a partial import. "Re-read" asks `claude-sonnet-5-5` (twice at most per screenshot) and replaces the rows; a failed re-read changes nothing. The API key is read only from `ANTHROPIC_API_KEY`.
 
@@ -159,9 +159,9 @@ The four agreed steps: upload a screenshot, have it read into one row per paymen
 
 **Review** (`/imports/[id]`). Paid by (the uploader by default, several payers split each payment equally), the payer's own share as a switch (off by default), Equal or Percent for the whole batch, and per row: tick or untick, member chips (tap Jamie off one row), category, description, date, amount, currency, billed amount, and its own Equal or Percent split. Totals per person and per currency update live, with a sum check against any total printed on the screenshot. Edits are saved as you go. "Review and add" opens "Confirm or make changes"; "OK, add to ledger" adds the ticked rows. Other members can look at a draft but only the uploader can change, confirm, undo or discard it.
 
-**Confirm** is one transaction: it locks the import, adds every ticked row through the ledger's own insert (so each expense gets its audit row and its exchange rate handling), links each expense to its import row and writes an `import.confirm` audit entry. It is idempotent (a second confirm, or two at once, adds nothing more). If an exchange rate cannot be fetched the expense is still added and shows "No rate" until one is set. **Undo import** soft deletes the whole batch in one transaction (`import.undo`).
+**Confirm** adds the rows in one transaction: it locks the import, adds every ticked row through the ledger's own insert (so each expense gets its audit row and its exchange rate handling), links each expense to its import row and writes an `import.confirm` audit entry, then deletes the original screenshot (it was only kept for the review; if that deletion fails the import stands and the retention job deletes it). It is idempotent (a second confirm, or two at once, adds nothing more). If an exchange rate cannot be fetched the expense is still added and shows "No rate" until one is set. **Undo import** soft deletes the whole batch in one transaction (`import.undo`); it does not need the screenshot.
 
-**Retention.** Originals are deleted 30 days after confirmation (immediately for cancelled and expired drafts); the extracted rows stay. `GET /api/cron/retention` (guarded by `CRON_SECRET`, scheduled in `vercel.json`) also expires drafts that ran out of time. It is safe to run twice, and one failing image never stops the rest.
+**Retention.** Originals are deleted as soon as an import is confirmed or a draft is cancelled, and when a draft expires; the extracted rows stay. `GET /api/cron/retention` (guarded by `CRON_SECRET`, scheduled in `vercel.json`) expires drafts that ran out of time and sweeps up any original left behind by a failed deletion, plus database images that no import refers to. It is safe to run twice, and one failing image never stops the rest.
 
 **Tests.** Contract tests drive the extractor with hand-built Messages API responses (clean, ambiguous, refused, cut off, malformed, an injection attempt) and make no network call. Integration tests cover drafts, duplicates, confirm, undo, permissions, expiry and retention against real Postgres; Playwright covers upload, editing a row (remove Jamie), confirm, Cancel, duplicate re-upload and a non-uploader trying to confirm, on a phone and a desktop viewport with the model replaced by `LULLET_EXTRACTOR=stub`. The accuracy eval is manual: put redacted screenshots and golden files in a folder and run `pnpm eval:screenshots <folder>` (format in `scripts/eval-screenshots.ts`); it prints per-field accuracy and "silent errors" for Haiku and Sonnet side by side, and does nothing without an API key.
 

@@ -94,9 +94,12 @@ describe("a screenshot sent to the bot in a private chat", () => {
     await world.tap(ALEX, draft, "Summary");
     expect(draft.text).toContain("Louvre, €64.00, Sightseeing, Mum, Dad");
 
+    expect(world.storage.objects.size).toBe(1);
     await world.tap(ALEX, draft, "Confirm 4");
     draft = world.draftMessage(ALEX);
     expect(draft.text).toContain("Added 4 expenses");
+    // The screenshot was only kept for the review.
+    expect(world.storage.objects.size).toBe(0);
     expect(fake.hasButton(draft, "Undo")).toBe(true);
     expect(await ledger()).toHaveLength(4);
     const louvre = (await ledger()).find((e) => e.description === "Louvre");

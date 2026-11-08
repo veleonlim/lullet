@@ -4,7 +4,6 @@ import {
   dailyUploadLimit,
   dailyWindowStart,
   draftExpiry,
-  retentionCutoff,
 } from "./policy";
 
 describe("import policy", () => {
@@ -12,10 +11,6 @@ describe("import policy", () => {
 
   it("expires a draft 24 hours after it was made", () => {
     expect(draftExpiry(now).toISOString()).toBe("2026-11-09T12:00:00.000Z");
-  });
-
-  it("keeps originals for 30 days after confirmation", () => {
-    expect(retentionCutoff(now).toISOString()).toBe("2026-10-09T12:00:00.000Z");
   });
 
   it("counts uploads over a rolling day", () => {

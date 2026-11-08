@@ -10,7 +10,7 @@ function sameSecret(given: string, expected: string): boolean {
 }
 
 /**
- * The scheduled clean-up (expire old drafts, delete originals 30 days after confirmation). Vercel
+ * The scheduled clean-up (expire old drafts, delete any original still stored for a closed import). Vercel
  * Cron calls it with `Authorization: Bearer $CRON_SECRET`; anything else is refused, and with no
  * secret configured the route is closed rather than open.
  */

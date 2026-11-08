@@ -12,19 +12,11 @@ export const MAX_REREADS = 2;
 /** An unconfirmed draft is discarded after this long. */
 export const DRAFT_TTL_HOURS = 24;
 
-/** Original screenshots are deleted this long after the import was confirmed; extracted rows stay. */
-export const IMAGE_RETENTION_DAYS = 30;
-
 const HOUR_MS = 3_600_000;
 const DAY_MS = 24 * HOUR_MS;
 
 export function draftExpiry(from: Date): Date {
   return new Date(from.getTime() + DRAFT_TTL_HOURS * HOUR_MS);
-}
-
-/** Confirmed (or undone) imports whose original may be deleted at `now` were confirmed at or before this. */
-export function retentionCutoff(now: Date): Date {
-  return new Date(now.getTime() - IMAGE_RETENTION_DAYS * DAY_MS);
 }
 
 export function dailyWindowStart(now: Date): Date {
