@@ -130,10 +130,21 @@ describe("what comes back", () => {
 });
 
 describe("the time budget", () => {
-  it("lets a failed read be recorded before the 60 second function limit", () => {
-    // Every route that reads a screenshot has maxDuration = 60 (uploads, re-reads, the webhook).
-    expect(REQUEST_TIMEOUT_MS * (MAX_RETRIES + 1)).toBeLessThan(60_000 - 2_000);
-  });
+  // Vercel Hobby with Fluid compute: default and maximum function duration, in seconds.
+  const PLAN_MAX_DURATION_S = 300;
+  const routes = {
+    uploads: () => import("@/app/api/imports/route"),
+    "re-reads": () => import("@/app/api/imports/[id]/reread/route"),
+    "the Telegram webhook": () => import("@/app/api/telegram/webhook/route"),
+  };
+  for (const [name, load] of Object.entries(routes)) {
+    it(`gives ${name} time to record a failed read, within the plan limit`, async () => {
+      const { maxDuration } = await load();
+      const worstCaseS = (REQUEST_TIMEOUT_MS * (MAX_RETRIES + 1)) / 1000;
+      expect(maxDuration - worstCaseS).toBeGreaterThanOrEqual(30);
+      expect(maxDuration).toBeLessThanOrEqual(PLAN_MAX_DURATION_S);
+    });
+  }
 });
 
 describe("failures become an empty draft, never a partial import", () => {

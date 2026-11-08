@@ -4,8 +4,9 @@ import { json, withImports } from "@/server/import/http";
 import { uploadScreenshot } from "@/server/import/service";
 
 export const dynamic = "force-dynamic";
-// Reading the screenshot with the model takes a few seconds.
-export const maxDuration = 60;
+// Two model attempts of up to 60 s each, plus storing the file and recording a failed read. Within
+// the 300 s Hobby plan limit with Fluid compute (https://vercel.com/docs/fluid-compute).
+export const maxDuration = 180;
 
 /** Multipart body overhead allowed on top of the file itself. */
 const BODY_SLACK = 64_000;

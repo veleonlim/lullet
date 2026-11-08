@@ -20,12 +20,14 @@ export interface MessagesClient {
 }
 
 /**
- * One request may take this long, and may be tried once more after a transient failure. The pair
- * has to fit inside the 60 second `maxDuration` of the routes that call it (uploads, re-reads, the
- * Telegram webhook), or the host would kill the function before a failed read could be recorded as
- * an empty draft.
+ * One request may take this long, and may be tried once more after a transient failure, so a read
+ * takes at most two of them. That has to fit with headroom inside the 180 second `maxDuration` of
+ * the routes that call it (uploads, re-reads, the Telegram webhook), or the host would kill the
+ * function before a failed read could be recorded as an empty draft. 180 seconds fits the Vercel
+ * Hobby plan with Fluid compute, whose default and maximum duration is 300 seconds:
+ * https://vercel.com/docs/functions/limitations and https://vercel.com/docs/fluid-compute
  */
-export const REQUEST_TIMEOUT_MS = 28_000;
+export const REQUEST_TIMEOUT_MS = 60_000;
 export const MAX_RETRIES = 1;
 
 /** Plenty for 60 rows; hitting it means the answer is cut off and not to be trusted. */

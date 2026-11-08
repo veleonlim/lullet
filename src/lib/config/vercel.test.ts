@@ -44,15 +44,16 @@ describe("vercel.json", () => {
     expect(jobs.sort()).toEqual((config.crons ?? []).map((cron) => cron.path).sort());
   });
 
-  it("keeps every long-running route within the 60 second function limit", () => {
-    for (const route of [
-      "src/app/api/imports/route.ts",
-      "src/app/api/imports/[id]/reread/route.ts",
-      "src/app/api/telegram/webhook/route.ts",
-      "src/app/api/cron/retention/route.ts",
-    ]) {
-      const source = readFileSync(path.join(root, route), "utf8");
-      expect(source, route).toMatch(/export const maxDuration = 60;/);
+  it("keeps every long-running route within the 300 second Hobby plan limit", async () => {
+    const modules = await Promise.all([
+      import("@/app/api/imports/route"),
+      import("@/app/api/imports/[id]/reread/route"),
+      import("@/app/api/telegram/webhook/route"),
+      import("@/app/api/cron/retention/route"),
+    ]);
+    for (const { maxDuration } of modules) {
+      expect(maxDuration).toBeGreaterThan(0);
+      expect(maxDuration).toBeLessThanOrEqual(300);
     }
   });
 });
