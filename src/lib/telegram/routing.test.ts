@@ -110,6 +110,23 @@ describe("photos", () => {
     ).toBe("not_a_trigger");
   });
 
+  it("takes a group photo captioned with /import, which privacy mode lets through", () => {
+    for (const caption of [
+      "/import",
+      "/import test",
+      "/import split between mei and dad",
+      "/import@lullet_bot test",
+    ]) {
+      expect(reason(photoUpdate(group(), { fileId: "f", caption }))).toBe("image");
+    }
+  });
+
+  it("answers a bare /import in the group instead of ignoring it", () => {
+    expect(reason(textUpdate(group(), "/import"))).toBe("command");
+    expect(reason(textUpdate(group(), "/import@lullet_bot"))).toBe("command");
+    expect(reason(textUpdate(group(), "/unknown"))).toBe("not_a_trigger");
+  });
+
   it("cannot recognise a mention while the bot's username is unknown", () => {
     const unknown = { ...scope, botUsername: null };
     expect(reason(photoUpdate(group(), { fileId: "f", caption: "@lullet_bot" }), unknown)).toBe(

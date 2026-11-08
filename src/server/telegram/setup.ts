@@ -8,6 +8,11 @@ import type { BotConfig } from "./config";
  */
 
 export const BOT_COMMANDS = [
+  {
+    command: "import",
+    description:
+      "Caption a screenshot in the group with it, e.g. /import split between mei and dad",
+  },
   { command: "rate", description: "Set today's default rate, e.g. /rate EUR 1.51" },
   { command: "login", description: "Get a one-time link to the web dashboard" },
   { command: "alias", description: "Give a member another name for captions" },

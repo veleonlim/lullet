@@ -85,7 +85,9 @@ openssl rand -hex 32
 3. BotFather replies with a **token** that looks like `123456789:AAH...`. Copy it into
    `TELEGRAM_BOT_TOKEN` in your file. Treat it like a password.
 4. Leave the other BotFather settings as they are. In particular keep **privacy mode** on (the
-   default); lullet does not need to read every message in the group.
+   default); lullet does not need to read every message in the group. In the group, a screenshot
+   is picked up when its caption starts with `/import` (Telegram does not pass the bot a caption
+   that only mentions it).
 5. Create a Telegram **group** with the four of you (or use your existing family group) and add
    the bot to it.
 6. Find the group's id. In the group, send `/help@lullet_family_bot` (use your bot's username).
@@ -236,7 +238,7 @@ page.
    ```
 
    It checks the bot token first, then registers the webhook with its secret, the command list
-   (`/rate`, `/login`, `/alias`, `/help`) and the **Open lullet** button, and prints the bot's
+   (`/import`, `/rate`, `/login`, `/alias`, `/help`) and the **Open lullet** button, and prints the bot's
    username and how many updates are waiting. It is safe to run again whenever you like, for
    example after changing the address.
 
@@ -271,6 +273,9 @@ wrong" at the end.
 2. It answers "Reading your screenshot..." and then turns that message into a draft with
    **Confirm**, **Edit rows**, **Open in app** and **Cancel**.
 3. Press **Cancel** (or Confirm and then **Undo**) so nothing stays in the ledger.
+4. Also try it in the family group: send a screenshot with the caption `/import`. The group shows a
+   short note and the draft arrives in your private chat. (A caption that only says the bot's
+   name is not seen by the bot.)
 
 **D. Check the daily clean-up (once).** On Vercel, **Settings, Cron Jobs** should list
 `/api/cron/retention`. To run it by hand, put your `CRON_SECRET` in this command (it should print

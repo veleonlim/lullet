@@ -1,5 +1,5 @@
 import { and, eq } from "drizzle-orm";
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import * as s from "@/db/schema";
 import { FakeTelegram } from "@/test-support/fake-telegram";
 import { callbackUpdate } from "@/test-support/telegram-updates";
@@ -260,6 +260,25 @@ describe("a screenshot posted in the group", () => {
     expect(draft.text).toContain("Paid by Mei");
   });
 
+  it("reads a /import caption, with or without the bot's name, and who shares from it", async () => {
+    await world.photo(MEI, {
+      group: true,
+      caption: "/import@lullet_test_bot split between me and dad",
+    });
+    const draft = fake.lastTo(PEOPLE[MEI].telegramId);
+    expect(draft.text).toContain("Draft from your screenshot");
+    expect(draft.text).toContain("1. Trattoria Roma, €48.50, Food, Mei, Dad");
+    expect(draft.text).toContain("shares: Mei €74.25, Dad €74.24");
+  });
+
+  it("explains /import when sent on its own, instead of staying silent", async () => {
+    await world.say(MEI, "/import", { group: true });
+    await world.say(MEI, "/import@lullet_test_bot", { group: true });
+    const replies = fake.messagesTo(GROUP_CHAT);
+    expect(replies).toHaveLength(2);
+    for (const reply of replies) expect(reply.text).toContain("caption of a screenshot");
+  });
+
   it("is read when the caption mentions the bot", async () => {
     await world.photo(MEI, { group: true, caption: "dinner @lullet_test_bot" });
     expect(fake.messagesTo(PEOPLE[MEI].telegramId)).toHaveLength(1);
@@ -309,6 +328,30 @@ describe("who the bot answers", () => {
     expect(fake.calls.filter((c) => c.method !== "getMe")).toHaveLength(0);
     expect(await db.select().from(s.imports)).toHaveLength(0);
     expect(await db.select().from(s.telegramUpdates)).toHaveLength(0);
+  });
+
+  it("logs why it dropped an update, without saying who sent it or what it said", async () => {
+    const { photoUpdate, textUpdate } = await import("@/test-support/telegram-updates");
+    const info = vi.spyOn(console, "info").mockImplementation(() => undefined);
+    try {
+      // A group photo whose caption does not address the bot, as privacy mode lets through.
+      await world.send(photoUpdate(world.where(MEI, true), { fileId: "x" }));
+      await world.send(
+        textUpdate({ fromId: 555, chatId: 555, chatType: "private" }, "/help secret words"),
+      );
+      const update = textUpdate(world.where(ALEX), "/help", { updateId: 515151 });
+      await world.send(update);
+      await world.send(update);
+      const lines = info.mock.calls.map((call) => String(call[0]));
+      expect(lines).toEqual([
+        "Telegram update dropped: not_a_trigger - message in supergroup chat (photo)",
+        "Telegram update dropped: not_allowed - message in private chat (text)",
+        "Telegram update dropped: duplicate - message in private chat (text)",
+      ]);
+      expect(lines.join("\n")).not.toMatch(/555|secret/);
+    } finally {
+      info.mockRestore();
+    }
   });
 
   it("handles a redelivered update only once", async () => {

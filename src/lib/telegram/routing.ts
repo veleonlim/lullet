@@ -16,7 +16,7 @@ export interface BotScope {
   readonly botUsername: string | null;
 }
 
-export const COMMANDS = ["start", "help", "login", "rate", "alias"] as const;
+export const COMMANDS = ["start", "help", "login", "rate", "alias", "import"] as const;
 export type CommandName = (typeof COMMANDS)[number];
 
 export type ChatKind = "private" | "group";
@@ -156,6 +156,8 @@ function classifyMessage(message: Message, scope: BotScope): Intent {
     const caption = message.caption ?? null;
     if (origin.chatKind === "group") {
       // In the group a photo counts only when its caption is a command for us or names the bot.
+      // Telegram's privacy mode only passes a bot the commands addressed to it, so in practice the
+      // command is the way in; a mention is read too, for a bot whose privacy mode is off.
       const command = caption === null ? null : parseCommand(caption);
       const isCommand = command !== null && isForUs(command.target, scope);
       if (command !== null && !isCommand) return ignore("not_addressed");
