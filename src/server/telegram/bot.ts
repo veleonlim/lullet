@@ -79,14 +79,18 @@ const HELP = [
   "<b>lullet</b>",
   "Send me a screenshot of a payment and I will read it. You then check who shares each row and confirm.",
   "",
-  "In the group chat, give the photo a caption that starts with / or mentions me. I will send the draft to you privately.",
-  "Captions can say who shares: <i>split between mei and dad</i>, <i>paid by mum</i>, <i>except dad</i>.",
+  "In the group chat, start the photo's caption with <code>/import</code>, because Telegram shows me nothing else there. I will send the draft to you privately.",
+  "After it the caption can say who shares: <code>/import split between mei and dad</code>, <i>paid by mum</i>, <i>except dad</i>.",
   "",
+  "/import - caption a screenshot with it in the group (in a private chat just send the screenshot)",
   "/rate EUR 1.51 - today's default rate for the group (SGD per 1 EUR)",
   "/login - a one-time link to the web dashboard, sent to you privately",
   "/alias mum mom - another name a caption can use for a member",
   "/help - this message",
 ].join("\n");
+
+const SCREENSHOT_USAGE =
+  "Send /import as the caption of a screenshot, for example <code>/import split between mei and dad</code>. On its own it has nothing to read.";
 
 function importDepsFor(deps: BotDeps, member: Member): ImportDeps {
   return {
@@ -124,20 +128,52 @@ async function safely(label: string, task: () => Promise<unknown>): Promise<void
   }
 }
 
+/** What the log says about an update: its shape only, never who sent it or what it said. */
+function describeUpdate(update: Update): string {
+  const message = update.message;
+  if (message) {
+    const content = message.photo ? "photo" : message.document ? "document" : "text";
+    return `message in ${message.chat.type} chat (${content})`;
+  }
+  if (update.callback_query) return "callback query";
+  return "unsupported update";
+}
+
+/**
+ * Strangers get no reply, but a dropped update is never silent in the logs: without the reason a
+ * bot that "does not answer" cannot be told apart from one that was never reached.
+ */
+function logDropped(update: Update, reason: string): void {
+  console.info(`Telegram update dropped: ${reason} - ${describeUpdate(update)}`);
+}
+
 /** Entry point: one Telegram update. Never throws; strangers get no reply at all. */
 export async function processUpdate(deps: BotDeps, update: Update): Promise<UpdateOutcome> {
-  const botUsername = await deps.api.botUsername().catch(() => null);
+  const botUsername = await deps.api.botUsername().catch((error: unknown) => {
+    console.warn(
+      "Telegram getMe failed, so /command@bot and mentions go unrecognised",
+      describeFailure(error),
+    );
+    return null;
+  });
   const intent = classifyUpdate(update, {
     groupChatId: deps.config.groupChatId,
     allowedUserIds: await allowedTelegramIds(deps.db),
     botUsername,
   });
-  if (intent.kind === "ignore") return { handled: false, reason: intent.reason };
+  if (intent.kind === "ignore") {
+    logDropped(update, intent.reason);
+    return { handled: false, reason: intent.reason };
+  }
   if (!(await claimUpdate(deps.db, update.update_id, deps.now()))) {
+    logDropped(update, "duplicate");
     return { handled: false, reason: "duplicate" };
   }
   const member = await findMemberByTelegramId(intent.origin.userId, { db: deps.db });
-  if (!member) return { handled: false, reason: "unknown_member" };
+  if (!member) {
+    logDropped(update, "unknown_member");
+    return { handled: false, reason: "unknown_member" };
+  }
 
   try {
     switch (intent.kind) {
@@ -183,6 +219,9 @@ async function handleCommand(deps: BotDeps, member: Member, intent: CommandInten
       return rateCommand(deps, member, intent, reply);
     case "alias":
       return aliasCommand(deps, member, intent, reply);
+    case "import":
+      await reply(SCREENSHOT_USAGE);
+      return;
     case "start":
     case "help":
     case null:
@@ -192,7 +231,10 @@ async function handleCommand(deps: BotDeps, member: Member, intent: CommandInten
 
 async function loginCommand(deps: BotDeps, origin: Origin, messageId: number): Promise<void> {
   const link = await mintLoginLink(origin.userId, { baseUrl: deps.config.appUrl }, authDeps(deps));
-  if (!link) return;
+  if (!link) {
+    console.info("Telegram login link not minted: the sender has no membership");
+    return;
+  }
   const html = [
     "Here is your one-time link to the lullet dashboard.",
     "It works once and expires in 10 minutes. Do not forward it.",

@@ -1,4 +1,14 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+  type MockInstance,
+} from "vitest";
 import { SECRET_HEADER } from "@/lib/telegram/secret";
 import { processUpdate } from "@/server/telegram/bot";
 import { handleWebhook, type WebhookRuntime } from "@/server/telegram/webhook";
@@ -36,6 +46,13 @@ beforeEach(async () => {
   };
 });
 
+let warn: MockInstance<typeof console.warn>;
+beforeEach(() => {
+  warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+});
+afterEach(() => warn.mockRestore());
+const warnings = () => warn.mock.calls.map((call) => String(call[0]));
+
 const post = (body: unknown, headers: Record<string, string> = {}) =>
   new Request("https://lullet.test/api/telegram/webhook", {
     method: "POST",
@@ -67,6 +84,22 @@ describe("the webhook", () => {
     expect(response.status).toBe(401);
     expect(pending).toHaveLength(0);
     expect(fake.calls).toHaveLength(0);
+    expect(warnings()).toHaveLength(1);
+    expect(warnings()[0]).toContain("refused with 401");
+    expect(warnings()[0]).not.toContain(WEBHOOK_SECRET);
+    expect(warnings()[0]).not.toContain("wrong-secret");
+  });
+
+  it("says in the log whether the secret header was missing or did not match", async () => {
+    await handleWebhook(post(update()), runtime);
+    await handleWebhook(
+      post(update(), { [SECRET_HEADER]: "wrong-secret-0123456789abcdef" }),
+      runtime,
+    );
+    expect(warnings()).toEqual([
+      "Telegram webhook refused with 401: the secret token header is missing",
+      "Telegram webhook refused with 401: the secret token does not match TELEGRAM_WEBHOOK_SECRET",
+    ]);
   });
 
   it("pretends not to exist until the bot is configured", async () => {
@@ -75,6 +108,9 @@ describe("the webhook", () => {
       config: null,
     });
     expect(response.status).toBe(404);
+    expect(warnings()).toEqual([
+      "Telegram webhook refused with 404: the bot is not configured (token, webhook secret or group id)",
+    ]);
   });
 
   it("refuses bodies that are not Telegram updates", async () => {
@@ -85,6 +121,12 @@ describe("the webhook", () => {
     const huge = post("x".repeat(1_100_000), { ...headers, "content-length": "1100000" });
     expect((await handleWebhook(huge, runtime)).status).toBe(413);
     expect(pending).toHaveLength(0);
+    expect(warnings()).toEqual([
+      "Telegram webhook refused with 400: the body is not valid JSON",
+      "Telegram webhook refused with 400: the body is not a Telegram update",
+      "Telegram webhook refused with 400: the body is not a Telegram update",
+      "Telegram webhook refused with 413: the declared body is too large",
+    ]);
   });
 
   it("answers 200 even when processing fails, so Telegram does not redeliver forever", async () => {

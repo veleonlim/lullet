@@ -23,6 +23,13 @@ describe("registering the bot", () => {
     expect(plan.webhookUrl).toBe("https://lullet.example.com/api/telegram/webhook");
     expect(plan.miniAppUrl).toBe("https://lullet.example.com/signin");
     expect(plan.commands).toBe(BOT_COMMANDS);
+    expect(plan.commands.map((c) => c.command)).toEqual([
+      "import",
+      "rate",
+      "login",
+      "alias",
+      "help",
+    ]);
     expect(plan.allowedUpdates).toEqual(["message", "callback_query"]);
     expect(setupProblem(plan)).toBeNull();
     expect(setupProblem(buildSetupPlan(config({ appUrl: "http://localhost:3000" })))).toContain(
