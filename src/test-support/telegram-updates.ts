@@ -2,7 +2,8 @@ import type { Update } from "grammy/types";
 
 /** Builders for the updates Telegram would POST to the webhook, for tests. */
 
-let counter = 1000;
+// Starts from the clock so ids from one run never collide with those a persistent test database saw before.
+let counter = Date.now() * 100;
 export const nextUpdateId = (): number => ++counter;
 
 export interface Where {

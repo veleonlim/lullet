@@ -379,47 +379,58 @@ async function handleImage(
     return;
   }
 
-  const store = storeFor(deps, member);
-  let view = await store.getDraft(importId);
-  if (!view) return;
-
-  // The caption can say who paid and who shares; it is read by plain code, never sent to the model.
-  let note = "";
-  const table = buildAliasTable(
-    group,
-    await customAliases(deps.db, member.groupId),
-    member.userId,
-    new Map(
-      group.flatMap((p) => (p.telegramUsername ? [[p.userId, p.telegramUsername] as const] : [])),
-    ),
-  );
-  const plan = parseCaption(intent.caption, botUsername, table);
-  if (!isEmptyPlan(plan) && view.rows.length > 0) {
-    const order = group.map((p) => p.userId);
-    const applied = applyCaptionPlan(plan, view.batch, order);
-    view = await store.saveDraft(importId, {
-      batch: applied.batch,
-      rows: view.rows.map((row) => ({
-        ...rowToEdit(row),
-        split: applied.rowSplit ?? row.split,
-      })),
-    });
-  }
-  if (plan.unknown.length > 0) {
-    note = `\n<i>I did not recognise: ${escapeHtml(clip(plan.unknown.join(", "), 60))}.</i>`;
+  try {
+    await presentDraft();
+  } catch (error) {
+    console.error("Telegram draft failed", describeFailure(error));
+    await safely("edit", () =>
+      edit("Your screenshot was read, but I could not show the draft. Open it in the app."),
+    );
   }
 
-  const message = renderDraft(renderInput(deps, view, group), { kind: "summary" });
-  await trackDraftMessage(deps.db, importId, origin.userId, ackId, "summary", deps.now());
-  await edit((message.text + note).slice(0, MESSAGE_LIMIT), message.keyboard);
-  if (groupNote !== null) {
-    await safely("group note", () =>
-      api.editMessage(
-        origin.chatId,
-        groupNote,
-        `${escapeHtml(me)}'s draft is ready in their private chat.`,
+  async function presentDraft(): Promise<void> {
+    const store = storeFor(deps, member);
+    let view = await store.getDraft(importId);
+    if (!view) return;
+
+    // The caption can say who paid and who shares; it is read by plain code, never sent to the model.
+    let note = "";
+    const table = buildAliasTable(
+      group,
+      await customAliases(deps.db, member.groupId),
+      member.userId,
+      new Map(
+        group.flatMap((p) => (p.telegramUsername ? [[p.userId, p.telegramUsername] as const] : [])),
       ),
     );
+    const plan = parseCaption(intent.caption, botUsername, table);
+    if (!isEmptyPlan(plan) && view.rows.length > 0) {
+      const order = group.map((p) => p.userId);
+      const applied = applyCaptionPlan(plan, view.batch, order);
+      view = await store.saveDraft(importId, {
+        batch: applied.batch,
+        rows: view.rows.map((row) => ({
+          ...rowToEdit(row),
+          split: applied.rowSplit ?? row.split,
+        })),
+      });
+    }
+    if (plan.unknown.length > 0) {
+      note = `\n<i>I did not recognise: ${escapeHtml(clip(plan.unknown.join(", "), 60))}.</i>`;
+    }
+
+    const message = renderDraft(renderInput(deps, view, group), { kind: "summary" });
+    await trackDraftMessage(deps.db, importId, origin.userId, ackId, "summary", deps.now());
+    await edit((message.text + note).slice(0, MESSAGE_LIMIT), message.keyboard);
+    if (groupNote !== null) {
+      await safely("group note", () =>
+        api.editMessage(
+          origin.chatId,
+          groupNote,
+          `${escapeHtml(me)}'s draft is ready in their private chat.`,
+        ),
+      );
+    }
   }
 }
 

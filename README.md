@@ -2,7 +2,7 @@
 
 Europe Split: a Splitwise-like expense splitter for four people (the requester, their girlfriend and their parents), first used on a trip to Switzerland and Italy.
 
-Telegram is the capture and edit surface; this web app is the database and dashboard. This repository holds the foundation (app skeleton, database schema, the money and ledger library, the quality gates), Telegram sign-in, the web ledger (expense list, add and edit, soft delete and restore, history, balances and settle-up), the screenshot import (upload, read by Claude, review, confirm, undo), and the dashboard with daily budgets and daily exchange rates. Later slices add the Telegram bot.
+Telegram is the capture and edit surface; this web app is the database and dashboard. This repository holds the foundation (app skeleton, database schema, the money and ledger library, the quality gates), Telegram sign-in, the web ledger (expense list, add and edit, soft delete and restore, history, balances and settle-up), the screenshot import (upload, read by Claude, review, confirm, undo), the dashboard with daily budgets and daily exchange rates, and the Telegram bot (described under [Telegram bot](#telegram-bot)).
 
 ## Stack
 
@@ -54,6 +54,7 @@ First time running end to end tests: `pnpm exec playwright install chromium`.
 | `pnpm eval:screenshots`        | Manual accuracy eval of the screenshot reader against the live Claude API (needs `ANTHROPIC_API_KEY`; see [Screenshot import](#screenshot-import)) |
 | `pnpm auth:bootstrap`          | Create the group and link its members to Telegram accounts (once)                                                                                  |
 | `pnpm auth:mint-link`          | Print a one-time browser login link for a member                                                                                                   |
+| `pnpm telegram:setup`          | Register the webhook, commands and Mini App button with Telegram (`--dry-run` prints the plan only)                                                |
 | `pnpm db:generate`             | Generate a migration from schema changes                                                                                                           |
 | `pnpm db:migrate`              | Apply migrations to `DATABASE_URL_UNPOOLED` or `DATABASE_URL`                                                                                      |
 | `pnpm db:check`                | Verify the migration history is consistent                                                                                                         |
@@ -85,8 +86,10 @@ No job calls a live external service; exchange rate tests replay recorded respon
 | `DATABASE_POOL_MAX`                                                    | now       | Optional. Connections per instance, default 5; use 1 on serverless                                                                                                           |
 | `SESSION_SECRET`                                                       | now       | At least 32 characters. Keys the hash of session cookies and login links; changing it signs everyone out                                                                     |
 | `APP_URL`                                                              | now       | Public origin (`https://...`), used to build login links. Required in production                                                                                             |
-| `TELEGRAM_BOT_TOKEN`                                                   | now       | Bot token from BotFather. Verifies Mini App sign-in; also used by the bot (slice 3)                                                                                          |
-| `TELEGRAM_WEBHOOK_SECRET`                                              | slice 3   | Secret token checked on every webhook call                                                                                                                                   |
+| `TELEGRAM_BOT_TOKEN`                                                   | now       | Bot token from BotFather. Verifies Mini App sign-in; also used by the bot                                                                                                    |
+| `TELEGRAM_WEBHOOK_SECRET`                                              | bot       | Secret token checked on every webhook call; also keys the nonce on inline buttons                                                                                            |
+| `TELEGRAM_GROUP_CHAT_ID`                                               | bot       | Numeric chat id of the one group the bot serves                                                                                                                              |
+| `TELEGRAM_BOT_USERNAME`, `TELEGRAM_API_ROOT`                           | bot       | Optional. The bot's username (otherwise asked once), and a fake Bot API address for tests                                                                                    |
 | `ANTHROPIC_API_KEY`                                                    | now       | Claude Console API key for screenshot reading, read only from the environment. Without it every upload becomes an empty draft to fill in by hand                             |
 | `S3_ENDPOINT`, `S3_BUCKET`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY` | now       | Cloudflare R2 (S3 compatible) private bucket for original screenshots. Required in production; in development files go to `LULLET_STORAGE_DIR` (default `.data/screenshots`) |
 | `CRON_SECRET`                                                          | now       | Bearer secret for the scheduled clean-up at `/api/cron/retention` (Vercel Cron sends it). With none set the route refuses every call                                         |
@@ -103,15 +106,15 @@ Only four allowlisted Telegram users can use the app (decision D3). Everyone els
 **Two ways in**
 
 - **Mini App** (inside Telegram): the page reads the signed launch data (`tgWebAppData`) and posts it to `POST /api/auth/telegram`. The server checks it as Telegram documents ([Mini Apps: validating data](https://core.telegram.org/bots/webapps#validating-data-received-via-the-mini-app)): HMAC-SHA256 with the key `HMAC_SHA256("WebAppData", bot token)` over the sorted `key=value` fields, compared in constant time, and `auth_date` no older than one hour. The Telegram user id must then be on the allowlist.
-- **Browser**: the bot (a later task) sends a one-time link. `mintLoginLink(telegramUserId)` in `src/lib/auth/db/login-links.ts` is the function it calls; it returns `null` for anyone not on the allowlist, and otherwise a URL `APP_URL/signin/link/<token>`. The token is 256 random bits, stored only as an HMAC hash, valid for 10 minutes, and used up by one atomic conditional `UPDATE`, so it works once even under concurrent requests. Minting a new link withdraws the member's older unused one. Opening the link only shows a **Continue** button (`POST /api/auth/link` consumes it), because Telegram fetches URLs in messages to build previews and a plain GET would burn the link. The sign-in page tells people to send `/login` to the bot; that is the contract for the bot task.
+- **Browser**: the bot sends a one-time link. `mintLoginLink(telegramUserId)` in `src/lib/auth/db/login-links.ts` is the function it calls; it returns `null` for anyone not on the allowlist, and otherwise a URL `APP_URL/signin/link/<token>`. The token is 256 random bits, stored only as an HMAC hash, valid for 10 minutes, and used up by one atomic conditional `UPDATE`, so it works once even under concurrent requests. Minting a new link withdraws the member's older unused one. Opening the link only shows a **Continue** button (`POST /api/auth/link` consumes it), because Telegram fetches URLs in messages to build previews and a plain GET would burn the link. The sign-in page tells people to send `/login` to the bot, which now does exactly that (see [Telegram bot](#telegram-bot)).
 
-Until the bot exists, mint a link yourself: `pnpm auth:mint-link <telegram-user-id>` prints the URL (it works against production too if `DATABASE_URL`, `SESSION_SECRET` and `APP_URL` point there).
+Without a bot (local development, or a break-glass login), mint a link yourself: `pnpm auth:mint-link <telegram-user-id>` prints the URL (it works against production too if `DATABASE_URL`, `SESSION_SECRET` and `APP_URL` point there).
 
 **Sessions** are server side (`sessions` table). The cookie `__Host-lullet_session` is `httpOnly`, `Secure`, `SameSite=Lax`, path `/`, and holds only a random token; the table stores its HMAC hash. A session lasts 30 days. Every login issues a new token and destroys the one the browser held (no session fixation); logout deletes the row, so a copied cookie stops working. A session also ends when the member leaves the group or the allowlist. The two cookie-setting POST routes refuse cross-site requests (`Sec-Fetch-Site` or `Origin`).
 
 **Guarding pages**: `src/proxy.ts` sends cookie-less requests to `/signin` (and answers `401` for `/api/*`), and the `(app)` route group's layout checks the session for real. Pages, server actions and route handlers learn who is calling only through `getSession()` in `src/lib/auth/session.ts`, which returns `{ userId, groupId }` or `null`; the data access layer scopes every query by that `groupId`. `/api/health` and the sign-in routes are public.
 
-Not done here: rate limiting of the public auth routes (slice 7), and the bot itself.
+Not done here: rate limiting of the public auth routes (slice 7).
 
 ## Database
 
@@ -185,6 +188,40 @@ Routes: `/dashboard` (trip so far against the budget, a day by day chart, each p
 - **Daily rates.** An amount that is converted records the rate it was priced with (the day's rate if one is set, else the stored market rate) when it is saved, so saving or removing a day's rate never moves an existing expense, balance, settle-up or dashboard figure (`priced_rate`, `priced_rate_currency` and `priced_source` on expenses and settlements, kept apart from a rate typed on the expense; the migration fills them in from what each row was priced at, so nothing on screen changes). Instead `/rates` offers "Re-price N expenses on this day" (expenses and settlements together; a day with only a rate-priced settlement has an offer too): it moves only the records the day's rate decides, to the day's current rate or to the market rate when none is set, fetching and storing the market rate first if it was never stored. An expense billed in SGD, native SGD, or with a rate of its own keeps its figure and is not counted in N. Re-pricing runs in one transaction and writes an `audit_log` row for the day plus one `expense.reprice` or `settlement.reprice` row per record whose SGD figure moved, with the old and new figure and how each was decided; the expense's history page shows them. Saving or removing a rate itself only writes its own `audit_log` row. Editing an expense keeps the rate it was priced with unless the edit changes what the price depends on (its day, the currency being converted, or whether a rate prices it at all), in which case it takes the rate of that moment; the stored rate is part of the edit's history entry, so any move shows. Restoring a deleted expense keeps its figure.
 - **Charts** are hand written HTML and CSS (`src/components/dashboard/day-chart.tsx`), not a library: nothing extra ships to the phone, text stays crisp at any width, and every colour comes from the theme tokens in `globals.css` so light and dark agree. One colour per category in a fixed order (the validated data-viz palette, never repainted by rank), a legend, a text equivalent (the day list under the chart) and state shown in words as well as colour.
 
+## Telegram bot
+
+Telegram is where screenshots are sent and edited; the web app stays the database and dashboard. The bot is a webhook at `POST /api/telegram/webhook` (grammY for the Bot API), code in `src/server/telegram` (handlers, Bot API adapter, notifications) and `src/lib/telegram` (pure logic: update routing, captions, callback data, message rendering).
+
+**Who it answers.** One group chat (`TELEGRAM_GROUP_CHAT_ID`) and private chats, and only for the four members: the allowlist is the same `telegram_links` table that signs people in (filled by `pnpm auth:bootstrap`). Anyone else, any other chat, other bots and every other kind of update are ignored without a reply, and Telegram is always answered `200` so the URL looks dead. Every call must carry the `X-Telegram-Bot-Api-Secret-Token` header, compared in constant time with `TELEGRAM_WEBHOOK_SECRET` (`401` otherwise; `404` while the bot is not configured). Each update id is claimed once (`telegram_updates`), so a redelivery is not handled twice.
+
+**After the response.** The webhook checks and acknowledges an update, then does the work (download, model read, replies) through `deferAfterResponse` in `src/server/telegram/runtime.ts`, which is Next's `after()` on Vercel (kept alive up to `maxDuration`, 60 s). The core (`handleWebhook`, `processUpdate`) takes a plain `defer` function, so another host needs only a different one-line binding.
+
+**Sending a screenshot.** Any photo (or image sent as a file) in the private chat with the bot is read. In the group a photo counts only when its caption is a command (`/split`) or mentions the bot; the draft is then sent to the sender privately and the group sees only a short note and, later, the confirmed result (decision D2). The bot answers at once with "Reading your screenshot..." and edits that same message into the draft summary when the read finishes:
+
+1. The summary lists each row (merchant, amount, category, a "check" or "needs input" mark, who shares when it differs), who paid, the total and each person's share, with buttons **Confirm N**, **Edit rows**, **Open in app** and **Cancel**. Confirm is offered only for a clean draft: 10 rows or fewer, no unreadable row, no possible duplicate, nothing that would fail to add. Anything else goes to **Open in app**. A message is capped at 4096 characters, so a long row list ends with a pointer to the app.
+2. **Edit rows** edits the message in place, one row at a time: include or leave out the row, per-row member toggles, Equal / Percent (5% buttons, or reply to the message with percentages like `60 40`; the last person takes the remainder), category, who paid, Prev / Next and Summary.
+3. **Confirm** adds the rows to the ledger (one transaction, idempotent) and turns the message into the result with an **Undo** button; **Undo** removes the whole batch again. The group gets a short announcement of a confirmation.
+4. **Open in app** opens the review page as a Mini App (`/signin?next=/imports/<id>`): the page signs the member in from Telegram's signed launch data and continues to the review screen.
+
+Buttons carry only a short action code, the draft id and an HMAC nonce (under 64 bytes). The server rejects data it did not mint, and checks for every tap that the tapper is the uploader (anyone else gets "Only X can do that with this import."), that the draft is still open, and that nothing is added twice.
+
+**Captions.** A caption such as `split between mei and dad`, `paid by mum` or `except dad` sets who paid and who shares. Plain code reads it (the text never reaches the model) against an alias table: each member's display name, first name and Telegram username, any extra names added with `/alias`, and `me`. Unknown names are reported in the draft, never guessed.
+
+**Commands.** `/rate EUR 1.51` sets today's default rate for the group (SGD per 1 EUR; audited); `/login` sends the member a one-time dashboard link privately (always to their own chat, also when asked for in the group); `/alias mum mom` gives a member another name for captions; `/help`.
+
+**Notifications (decision D6).** Confirming an import or adding an expense on the web posts a short summary to the group; editing or deleting an expense, or undoing an import, sends a private message to each member who was part of it. All best effort: a member who never pressed Start in the bot, or Telegram being down, never fails the change.
+
+**Setting it up (once the captain has a bot).** Create the bot with BotFather, add it to the group, and set `TELEGRAM_BOT_TOKEN`, `TELEGRAM_WEBHOOK_SECRET` (`openssl rand -hex 32`), `TELEGRAM_GROUP_CHAT_ID` and `APP_URL` (public https) in the environment, plus `pnpm auth:bootstrap` for the four members. Then:
+
+```sh
+pnpm telegram:setup --dry-run   # print the webhook, Mini App address and commands, call nothing
+pnpm telegram:setup             # setWebhook (with the secret token), setMyCommands, setChatMenuButton
+```
+
+Each member presses Start in a private chat with the bot once, so it can message them. Keep privacy mode on (the BotFather default): the bot only needs commands, replies and private chats. Whether a photo caption starting with a command reaches a bot under privacy mode is the open spike from the design (section 5.2); mentioning the bot in the caption is the alternative, and the private chat never depends on it.
+
+**Tests.** Unit tests (`src/lib/telegram`, `src/server/telegram`) cover update routing and the allowlist, callback data and nonces, caption parsing, percentages, and rendering including the 4096 cap. Integration tests (`tests/integration/telegram-*.test.ts`) run the bot against real Postgres and a fake Bot API server (`src/test-support/fake-telegram.ts`, which also enforces the 4096 cap). Playwright (`tests/e2e/telegram.spec.ts`) POSTs simulated updates to the running app's webhook: photo, draft, edit a row, confirm, undo, non-uploader Confirm rejected, unknown users and chats ignored, `/rate`, `/login`, the Mini App launch and the notifications. Nothing calls a real bot or the network; set `E2E_FAKE_TELEGRAM_PORT` if the default (`PORT` + 11) is taken.
+
 ## Layout
 
 ```
@@ -198,8 +235,9 @@ src/lib/dashboard  Pure dashboard logic: day bucketing, budget maths, re-pricing
 src/lib/money      Money and ledger library
 src/lib/fx         Exchange rate client
 src/lib/import     Screenshot import logic: image checks, extraction schema, doubt states, duplicates, splits, drafts
-src/server         Group-scoped data access layer and per-request store; import/ holds screenshot storage, the model client, drafts and the retention job
-scripts            db:seed, auth:bootstrap, auth:mint-link and eval:screenshots
+src/lib/telegram   Bot logic with no I/O: update routing and allowlist, callback data, captions, message rendering
+src/server         Group-scoped data access layer and per-request store; import/ holds screenshot storage, the model client, drafts and the retention job; telegram/ holds the bot
+scripts            db:seed, auth:bootstrap, auth:mint-link, eval:screenshots and telegram:setup
 src/test-support   Shared test generators
 tests/integration  Postgres integration tests
 tests/e2e          Playwright specs

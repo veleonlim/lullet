@@ -12,7 +12,10 @@ import type { WebhookRuntime } from "./webhook";
 
 /** Wires the bot to the running app: environment, database, storage, model and Next's `after`. */
 
-const globalForBot = globalThis as unknown as { __lulletFx?: FxRateClient };
+const globalForBot = globalThis as unknown as {
+  __lulletFx?: FxRateClient;
+  __lulletBotDeps?: BotDeps;
+};
 
 function fx(): FxRateClient {
   globalForBot.__lulletFx ??= new FrankfurterClient();
@@ -48,8 +51,14 @@ function buildDeps(): BotDeps | null {
   };
 }
 
+/** Built once per process, so the bot's username is asked of Telegram at most once. */
+function botDeps(): BotDeps | null {
+  globalForBot.__lulletBotDeps ??= buildDeps() ?? undefined;
+  return globalForBot.__lulletBotDeps ?? null;
+}
+
 export function getWebhookRuntime(): WebhookRuntime {
-  const deps = buildDeps();
+  const deps = botDeps();
   return {
     config: deps?.config ?? null,
     defer: deferAfterResponse,
@@ -59,9 +68,7 @@ export function getWebhookRuntime(): WebhookRuntime {
 
 /** The notifier for web actions and routes; does nothing until the bot is configured. */
 export function getNotifier(): Notifier {
-  const config = loadBotConfig();
-  if (!config) return noopNotifier;
-  return createNotifier({ db: getDatabase().db, api: createGrammyApi(config), config });
+  return botDeps()?.notifier ?? noopNotifier;
 }
 
 /** Tells the group or members about a ledger change once the response has gone out. */
