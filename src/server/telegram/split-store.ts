@@ -177,10 +177,15 @@ export async function saveFlow(
 }
 
 /**
- * Takes the Confirm tap: true for exactly one caller. The flow then reads `confirming` until the
- * expense is saved (`deleteFlow`) or the attempt is given up (`releaseConfirm`).
+ * Takes the Confirm tap: the claim's version for exactly one caller, null for the rest. The flow
+ * then reads `confirming` until the expense is saved (`finishConfirm`, in the save's own
+ * transaction) or the attempt is given up (`releaseConfirm`). Both only act on this claim.
  */
-export async function claimConfirm(db: Database, flow: SplitFlow, now: Date): Promise<boolean> {
+export async function claimConfirm(
+  db: Database,
+  flow: SplitFlow,
+  now: Date,
+): Promise<number | null> {
   const rows = await db
     .update(s.telegramSplitFlows)
     .set({ step: CONFIRMING, version: sql`${s.telegramSplitFlows.version} + 1`, updatedAt: now })
@@ -191,15 +196,41 @@ export async function claimConfirm(db: Database, flow: SplitFlow, now: Date): Pr
         eq(s.telegramSplitFlows.step, "summary"),
       ),
     )
+    .returning({ version: s.telegramSplitFlows.version });
+  return rows[0]?.version ?? null;
+}
+
+export async function releaseConfirm(
+  db: Database,
+  flowId: string,
+  claim: number,
+  now: Date,
+): Promise<void> {
+  await db
+    .update(s.telegramSplitFlows)
+    .set({ step: "summary", version: sql`${s.telegramSplitFlows.version} + 1`, updatedAt: now })
+    .where(claimed(flowId, claim));
+}
+
+/** Ends the flow inside the save's transaction; false, and the caller rolls back, if the claim is gone. */
+export async function finishConfirm(
+  tx: Pick<Database, "delete">,
+  flowId: string,
+  claim: number,
+): Promise<boolean> {
+  const rows = await tx
+    .delete(s.telegramSplitFlows)
+    .where(claimed(flowId, claim))
     .returning({ id: s.telegramSplitFlows.id });
   return rows.length > 0;
 }
 
-export async function releaseConfirm(db: Database, flowId: string, now: Date): Promise<void> {
-  await db
-    .update(s.telegramSplitFlows)
-    .set({ step: "summary", version: sql`${s.telegramSplitFlows.version} + 1`, updatedAt: now })
-    .where(and(eq(s.telegramSplitFlows.id, flowId), eq(s.telegramSplitFlows.step, CONFIRMING)));
+function claimed(flowId: string, claim: number) {
+  return and(
+    eq(s.telegramSplitFlows.id, flowId),
+    eq(s.telegramSplitFlows.step, CONFIRMING),
+    eq(s.telegramSplitFlows.version, claim),
+  );
 }
 
 export async function deleteFlow(db: Database, flowId: string): Promise<void> {

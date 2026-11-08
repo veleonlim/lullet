@@ -1,7 +1,13 @@
 import { eq } from "drizzle-orm";
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import * as s from "@/db/schema";
 import { validateExpenseForm, type ExpenseFormValues, type StoredExpense } from "@/lib/ledger";
+import {
+  claimConfirm,
+  findFlow,
+  finishConfirm,
+  releaseConfirm,
+} from "@/server/telegram/split-store";
 import { FakeTelegram, type FakeMessage } from "@/test-support/fake-telegram";
 import { callbackUpdate, textUpdate } from "@/test-support/telegram-updates";
 import { closeTestDb, resetDatabase, testDb } from "./helpers";
@@ -651,6 +657,77 @@ describe("confirming", () => {
     expect((await flows())[0]?.step).toBe("confirming");
   });
 
+  describe("a Confirm that outlives its claim", () => {
+    const advance = (ms: number) => {
+      world.clock.now = new Date(world.clock.now.getTime() + ms);
+    };
+    const who = () => ({ groupId: world.groupId, userId: world.userIds[ALEX] ?? "" });
+    const openFlow = async () => {
+      const found = await findFlow(db, who(), world.clock.now);
+      if (found.kind !== "open") throw new Error("no open flow");
+      return found.flow;
+    };
+
+    it("saves nothing when the flow was released and claimed again during the save", async () => {
+      await split(ALEX);
+      await answer(ALEX, "Souvenir");
+      await answer(ALEX, "20 EUR");
+      await tap(ALEX, "Done");
+      await tap(ALEX, "Done");
+      await tap(ALEX, "Equally");
+      await tap(ALEX, "Today");
+      await tap(ALEX, "Skip");
+      const summary = last(ALEX);
+      const fx = world.deps.fx;
+      const real = fx.getRate.bind(fx);
+      vi.spyOn(fx, "getRate").mockImplementationOnce(async (...args) => {
+        advance(121_000);
+        await openFlow();
+        return real(...args);
+      });
+      await tap(ALEX, "Confirm", summary);
+      expect(fake.answers.at(-1)?.text).toContain("nothing was added");
+      expect(await ledger()).toHaveLength(0);
+      expect(fake.messagesTo(GROUP_CHAT)).toHaveLength(0);
+      expect((await flows())[0]?.step).toBe("summary");
+
+      await tap(ALEX, "Confirm", summary);
+      expect(await ledger()).toHaveLength(1);
+      expect(await flows()).toHaveLength(0);
+    });
+
+    it("lets only the current claim release or finish the flow", async () => {
+      await toSummary();
+      const first = await claimConfirm(db, await openFlow(), world.clock.now);
+      advance(121_000);
+      const second = await claimConfirm(db, await openFlow(), world.clock.now);
+      expect(first).not.toBeNull();
+      expect(second).not.toBeNull();
+      if (first === null || second === null) return;
+
+      const id = (await flows())[0]?.id ?? "";
+      await releaseConfirm(db, id, first, world.clock.now);
+      expect((await flows())[0]?.step).toBe("confirming");
+      expect(await finishConfirm(db, id, first)).toBe(false);
+      expect(await flows()).toHaveLength(1);
+      expect(await finishConfirm(db, id, second)).toBe(true);
+      expect(await flows()).toHaveLength(0);
+    });
+
+    it("leaves no flow behind once the expense is saved, so a late Confirm adds nothing", async () => {
+      const summary = await toSummary();
+      const data = fake.callbackFor(summary, "Confirm");
+      const confirmAgain = () =>
+        world.send(callbackUpdate(world.where(ALEX), { messageId: summary.messageId, data }));
+      await confirmAgain();
+      expect(await flows()).toHaveLength(0);
+      advance(10 * 60_000);
+      await confirmAgain();
+      expect(fake.answers.at(-1)?.text).toContain("already finished");
+      expect(await ledger()).toHaveLength(1);
+    });
+  });
+
   describe("a Confirm whose handler never finished", () => {
     const advance = (ms: number) => {
       world.clock.now = new Date(world.clock.now.getTime() + ms);
@@ -687,9 +764,12 @@ describe("confirming", () => {
 
     it("can be confirmed again after two minutes, and adds the expense once", async () => {
       const summary = await stuckConfirm();
+      const data = fake.callbackFor(summary, "Confirm");
+      const confirmAgain = () =>
+        world.send(callbackUpdate(world.where(ALEX), { messageId: summary.messageId, data }));
       advance(121_000);
-      await tap(ALEX, "Confirm", summary);
-      await tap(ALEX, "Confirm", summary);
+      await confirmAgain();
+      await confirmAgain();
       expect(await ledger()).toHaveLength(1);
       expect(await flows()).toHaveLength(0);
       expect(fake.messagesTo(GROUP_CHAT)).toHaveLength(1);

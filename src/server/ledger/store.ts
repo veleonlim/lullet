@@ -139,7 +139,13 @@ export interface LedgerStore {
   getExpense(id: string): Promise<StoredExpense | null>;
   /** The expenses a screenshot import created, deleted ones included. */
   listImportExpenses(importId: string): Promise<StoredExpense[]>;
-  createExpense(input: ExpenseInput): Promise<StoredExpense>;
+  /**
+   * `within` runs in the same transaction right after the insert; if it throws, nothing is saved.
+   */
+  createExpense(
+    input: ExpenseInput,
+    within?: (tx: Tx, created: StoredExpense) => Promise<void>,
+  ): Promise<StoredExpense>;
   /** `expectedUpdatedAt` guards against overwriting someone else's edit. */
   updateExpense(id: string, input: ExpenseInput, expectedUpdatedAt: Date): Promise<StoredExpense>;
   deleteExpense(id: string): Promise<StoredExpense>;
@@ -847,10 +853,14 @@ export function createLedgerKit(options: StoreOptions): LedgerKit {
       return readExpenses(db, eq(s.expenses.importId, importId));
     },
 
-    async createExpense(input) {
+    async createExpense(input, within) {
       await members();
       await expenseInput(input);
-      return db.transaction((tx) => insertExpense(tx, input));
+      return db.transaction(async (tx) => {
+        const created = await insertExpense(tx, input);
+        await within?.(tx, created);
+        return created;
+      });
     },
 
     async updateExpense(id, input, expectedUpdatedAt) {

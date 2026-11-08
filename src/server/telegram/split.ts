@@ -58,6 +58,7 @@ import {
   CONFIRMING,
   claimConfirm,
   deleteFlow,
+  finishConfirm,
   deleteMemberFlow,
   findFlow,
   groupTimeZone,
@@ -529,18 +530,21 @@ async function applyAction(
 
 // ---- confirming -----------------------------------------------------------------------------
 
+class ClaimLostError extends Error {}
+
 async function confirm(ctx: Context, flow: SplitFlow, tapped: number): Promise<Note> {
   const { deps, member } = ctx;
-  if (!(await claimConfirm(deps.db, flow, deps.now()))) return stale();
+  const claim = await claimConfirm(deps.db, flow, deps.now());
+  if (claim === null) return stale();
 
   const giveUp = async (message: string): Promise<Note> => {
-    await releaseConfirm(deps.db, flow.id, deps.now());
+    await releaseConfirm(deps.db, flow.id, claim, deps.now());
     return alert(message);
   };
 
   const checked = checkSplit(flow.state, { memberIds: memberIds(ctx), today: ctx.today });
   if (!checked.ok) {
-    await releaseConfirm(deps.db, flow.id, deps.now());
+    await releaseConfirm(deps.db, flow.id, claim, deps.now());
     const screen = renderProblem(
       screenFor(ctx, flow),
       Object.values(checked.errors)[0] ?? "Check the answers.",
@@ -559,19 +563,23 @@ async function confirm(ctx: Context, flow: SplitFlow, tapped: number): Promise<N
   });
   let created;
   try {
-    created = await store.createExpense(checked.expense);
+    created = await store.createExpense(checked.expense, async (tx) => {
+      if (!(await finishConfirm(tx, flow.id, claim))) throw new ClaimLostError();
+    });
   } catch (error) {
+    if (error instanceof ClaimLostError) {
+      return alert("That took too long, so nothing was added. Send /split to try again.");
+    }
     if (error instanceof RateUnavailableError) {
       return giveUp(
         `I cannot get a ${error.currency} to SGD rate for ${error.date} right now. Try Confirm again in a moment, or set the rate with /rate.`,
       );
     }
     if (error instanceof LedgerError) return giveUp(error.message);
-    await releaseConfirm(deps.db, flow.id, deps.now());
+    await releaseConfirm(deps.db, flow.id, claim, deps.now());
     throw error;
   }
 
-  await deleteFlow(deps.db, flow.id);
   const added = renderAdded(screenFor(ctx, flow), checked.expense, {
     appUrl: deps.config.appUrl,
     expenseId: created.id,
