@@ -351,6 +351,8 @@ describe("commands", () => {
     expect(fake.lastTo(alexChat).text).toContain('captions can now call Mum "mom"');
     await world.say(ALEX, "/alias dad mom");
     expect(fake.lastTo(alexChat).text).toBe("That name is already in use.");
+    await world.say(ALEX, "/alias dad mum");
+    expect(fake.lastTo(alexChat).text).toBe("That name is already in use.");
     await world.photo(ALEX, { caption: "split between mom and dad" });
     expect(world.draftMessage(ALEX).text).toContain("Trattoria Roma, €48.50, Food, Mum, Dad");
   });

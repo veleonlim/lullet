@@ -11,7 +11,7 @@ import { resolveSplit, type RowSplitOverride } from "@/lib/import/split";
 import { CATEGORY_IDS } from "@/lib/ledger/categories";
 import { todayIn } from "@/lib/ledger/days";
 import { isCurrencyCode, formatRate, parseRate } from "@/lib/money";
-import { buildAliasTable, parseCaption, isEmptyPlan } from "@/lib/telegram/caption";
+import { buildAliasTable, isEmptyPlan, normalizeAlias, parseCaption } from "@/lib/telegram/caption";
 import { decodeCallback, type CallbackAction } from "@/lib/telegram/callbacks";
 import { escapeHtml, clip, MESSAGE_LIMIT } from "@/lib/telegram/html";
 import { nudgeRowPercent, parseTypedPercents } from "@/lib/telegram/percent";
@@ -265,6 +265,14 @@ async function rateCommand(
   await reply(`Default rate for ${day} set: 1 ${currency} = ${rate} SGD.`);
 }
 
+function usernamesOf(
+  group: readonly { userId: string; telegramUsername: string | null }[],
+): Map<string, string> {
+  return new Map(
+    group.flatMap((p) => (p.telegramUsername ? [[p.userId, p.telegramUsername] as const] : [])),
+  );
+}
+
 async function aliasCommand(
   deps: BotDeps,
   member: Member,
@@ -273,7 +281,7 @@ async function aliasCommand(
 ): Promise<void> {
   const group = await people(deps.db, member.groupId);
   const extra = await customAliases(deps.db, member.groupId);
-  const table = buildAliasTable(group, extra, member.userId);
+  const table = buildAliasTable(group, extra, member.userId, usernamesOf(group));
   const [who = "", ...rest] = intent.args.trim().split(/\s+/);
   const alias = rest.join(" ");
   const target = table.get(who.toLowerCase());
@@ -292,7 +300,9 @@ async function aliasCommand(
     );
     return;
   }
-  const result = await addAlias(deps.db, member.groupId, target, alias);
+  const result = table.has(normalizeAlias(alias))
+    ? "taken"
+    : await addAlias(deps.db, member.groupId, target, alias);
   const name = escapeHtml(group.find((p) => p.userId === target)?.displayName ?? "them");
   await reply(
     result === "added"
@@ -399,9 +409,7 @@ async function handleImage(
       group,
       await customAliases(deps.db, member.groupId),
       member.userId,
-      new Map(
-        group.flatMap((p) => (p.telegramUsername ? [[p.userId, p.telegramUsername] as const] : [])),
-      ),
+      usernamesOf(group),
     );
     const plan = parseCaption(intent.caption, botUsername, table);
     if (!isEmptyPlan(plan) && view.rows.length > 0) {
