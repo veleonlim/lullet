@@ -1,8 +1,8 @@
 /**
  * Where original screenshots live. They are private: nothing in the app hands out a public or
  * pre-signed URL; the app reads the bytes through this interface and serves them itself, to
- * signed-in members of the group only. Adapters: Cloudflare R2 (S3 compatible) in production and
- * the local file system for development and tests.
+ * signed-in members of the group only. Adapters: the database in production, the local file
+ * system for development and tests, and Cloudflare R2 (S3 compatible) as an optional extra.
  */
 export interface StoredImage {
   readonly bytes: Uint8Array;

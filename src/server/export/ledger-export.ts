@@ -6,7 +6,7 @@ import { buildExportFiles, type ExportData, type ExportFile } from "@/lib/export
 /**
  * Reads every ledger table in one read-only transaction (so the files agree with each other even
  * while the family is adding expenses) and turns them into CSV files. Nothing is written to the
- * database. Screenshot bytes are not part of it; they stay in the bucket.
+ * database. Screenshot bytes are not part of it; they are deleted once an import is confirmed or discarded.
  */
 export async function exportLedger(db: Database): Promise<ExportFile[]> {
   const data: ExportData = await db.transaction(
