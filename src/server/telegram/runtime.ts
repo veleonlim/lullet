@@ -62,7 +62,13 @@ export function getWebhookRuntime(): WebhookRuntime {
   return {
     config: deps?.config ?? null,
     defer: deferAfterResponse,
-    process: (update) => (deps ? processUpdate(deps, update) : Promise.resolve()),
+    process: async (update) => {
+      if (!deps) {
+        console.warn("Telegram update not processed: the bot is not configured");
+        return;
+      }
+      await processUpdate(deps, update);
+    },
   };
 }
 

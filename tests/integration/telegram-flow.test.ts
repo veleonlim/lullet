@@ -1,6 +1,7 @@
 import { and, eq } from "drizzle-orm";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import * as s from "@/db/schema";
+import { processUpdate } from "@/server/telegram/bot";
 import { FakeTelegram } from "@/test-support/fake-telegram";
 import { callbackUpdate } from "@/test-support/telegram-updates";
 import { closeTestDb, resetDatabase, testDb } from "./helpers";
@@ -328,6 +329,21 @@ describe("who the bot answers", () => {
     expect(fake.calls.filter((c) => c.method !== "getMe")).toHaveLength(0);
     expect(await db.select().from(s.imports)).toHaveLength(0);
     expect(await db.select().from(s.telegramUpdates)).toHaveLength(0);
+  });
+
+  it("logs a failed bot-username lookup instead of swallowing it", async () => {
+    const { textUpdate } = await import("@/test-support/telegram-updates");
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    try {
+      const api = { ...world.deps.api, botUsername: () => Promise.reject(new Error("getMe down")) };
+      await processUpdate({ ...world.deps, api }, textUpdate(world.where(ALEX), "/help"));
+      expect(warn.mock.calls.map((call) => String(call[0]))).toEqual([
+        "Telegram getMe failed, so /command@bot and mentions go unrecognised",
+      ]);
+      expect(fake.lastTo(PEOPLE[ALEX].telegramId).text).toContain("/rate");
+    } finally {
+      warn.mockRestore();
+    }
   });
 
   it("logs why it dropped an update, without saying who sent it or what it said", async () => {

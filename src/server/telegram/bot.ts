@@ -149,7 +149,13 @@ function logDropped(update: Update, reason: string): void {
 
 /** Entry point: one Telegram update. Never throws; strangers get no reply at all. */
 export async function processUpdate(deps: BotDeps, update: Update): Promise<UpdateOutcome> {
-  const botUsername = await deps.api.botUsername().catch(() => null);
+  const botUsername = await deps.api.botUsername().catch((error: unknown) => {
+    console.warn(
+      "Telegram getMe failed, so /command@bot and mentions go unrecognised",
+      describeFailure(error),
+    );
+    return null;
+  });
   const intent = classifyUpdate(update, {
     groupChatId: deps.config.groupChatId,
     allowedUserIds: await allowedTelegramIds(deps.db),

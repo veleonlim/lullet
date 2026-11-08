@@ -22,25 +22,33 @@ const MAX_BODY_BYTES = 1_000_000;
 
 const updateShape = z.object({ update_id: z.number().int().nonnegative() }).loose();
 
-const empty = (status: number) => new Response(null, { status });
+function refuse(status: number, reason: string): Response {
+  console.warn(`Telegram webhook refused with ${status}: ${reason}`);
+  return new Response(null, { status });
+}
 
 export async function handleWebhook(request: Request, runtime: WebhookRuntime): Promise<Response> {
   const { config } = runtime;
-  if (!config) return empty(404);
-  if (!secretsMatch(request.headers.get(SECRET_HEADER), config.webhookSecret)) return empty(401);
+  if (!config) return refuse(404, "the bot is not configured (token, webhook secret or group id)");
+  const secret = request.headers.get(SECRET_HEADER);
+  if (secret === null) return refuse(401, "the secret token header is missing");
+  if (!secretsMatch(secret, config.webhookSecret)) {
+    return refuse(401, "the secret token does not match TELEGRAM_WEBHOOK_SECRET");
+  }
 
   const declared = Number(request.headers.get("content-length") ?? "0");
-  if (declared > MAX_BODY_BYTES) return empty(413);
+  if (declared > MAX_BODY_BYTES) return refuse(413, "the declared body is too large");
   const text = await request.text().catch(() => null);
-  if (text === null || text.length > MAX_BODY_BYTES) return empty(413);
+  if (text === null) return refuse(413, "the body could not be read");
+  if (text.length > MAX_BODY_BYTES) return refuse(413, "the body is too large");
   let body: unknown;
   try {
     body = JSON.parse(text);
   } catch {
-    return empty(400);
+    return refuse(400, "the body is not valid JSON");
   }
   const parsed = updateShape.safeParse(body);
-  if (!parsed.success) return empty(400);
+  if (!parsed.success) return refuse(400, "the body is not a Telegram update");
 
   const update = body as Update;
   runtime.defer(async () => {
