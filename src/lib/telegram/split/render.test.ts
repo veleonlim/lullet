@@ -94,6 +94,16 @@ describe("the questions", () => {
     ]);
   });
 
+  it("gives a percent example that adds up to 100 for any number of sharers", () => {
+    for (const sharers of [["a"], ["a", "b", "c"], ["a", "b", "c", "d"]]) {
+      const percent = withMethod(withSharers(filled(), sharers), "percent");
+      const hint = /<code>([\d ]+)<\/code>/.exec(renderQuestion(input(percent), "values").text);
+      const numbers = (hint?.[1] ?? "").split(" ").map(Number);
+      expect(numbers).toHaveLength(sharers.length);
+      expect(numbers.reduce((sum, n) => sum + n, 0)).toBe(100);
+    }
+  });
+
   it("asks for percentages or exact amounts for the people who share", () => {
     const percent = withMethod(withSharers(filled(), ["a", "b"]), "percent");
     const p = renderQuestion(input(percent), "values");

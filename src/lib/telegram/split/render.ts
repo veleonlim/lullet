@@ -204,8 +204,11 @@ export function renderQuestion(input: SplitScreenInput, step: SplitStep): Render
 /** A made up answer in the shape asked for, so the example always matches how many people there are. */
 function example(count: number, kind: "amount" | "percent"): string {
   const parts = Array.from({ length: count }, (_, i) => {
-    if (kind === "percent")
-      return String(count === 2 ? (i === 0 ? 60 : 40) : Math.floor(100 / count));
+    if (kind === "percent") {
+      if (count === 2) return String(i === 0 ? 60 : 40);
+      const each = Math.floor(100 / count);
+      return String(i === count - 1 ? 100 - each * (count - 1) : each);
+    }
     return String(10 * (i + 1));
   });
   return parts.join(" ");
